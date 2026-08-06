@@ -10,7 +10,7 @@ const authRoutes = require('./routes/auth.routes');
 const paymentRoutes = require('./routes/payment.routes');
 const webhookRoutes = require('./routes/webhook.routes');
 
-const { authLimiter, apiLimiter } = require('./middleware/rateLimit.middleware');
+const { apiLimiter } = require('./middleware/rateLimit.middleware');
 const { sendError } = require('./utils/ApiError');
 
 function createApp() {
@@ -51,6 +51,8 @@ function createApp() {
   });
 
   // ── Routes ────────────────────────────────────────────────────────────────
+  app.use('/api/auth', authRoutes);
+
   // Webhook first — must match before authenticated routes (raw body already parsed)
   app.use('/api/payment/webhook', webhookRoutes);
   app.use('/api/payment', paymentRoutes);
