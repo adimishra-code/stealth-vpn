@@ -1,0 +1,38 @@
+{
+  "name": "stealth-vpn-backend",
+  "version": "1.0.0",
+  "description": "StealthVPN — Production-grade stealth VPN backend API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed": "node ../scripts/seed-nodes.js",
+    "test-provision": "node scripts/test-provision.js",
+    "lint": "eslint src/",
+    "test": "jest --forceExit --detectOpenHandles"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "ipaddr.js": "^2.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.6.0",
+    "morgan": "^1.10.0",
+    "node-ssh": "^13.2.0",
+    "nodemailer": "^6.9.14",
+    "nodemon": "^3.1.4",
+    "qrcode": "^1.5.4",
+    "razorpay": "^2.9.4",
+    "stripe": "^16.8.0",
+    "winston": "^3.14.0",
+    "zod": "^3.23.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
