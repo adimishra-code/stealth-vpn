@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router'
 import { useVerifyEmailMutation } from '../features/auth/authApi'
 
 export default function VerifyEmail() {

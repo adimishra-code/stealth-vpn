@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { useSelector } from 'react-redux'
 import { selectToken } from '../features/auth/authSlice'
 
@@ -21,7 +21,7 @@ const features = [
   {
     icon: '🔑',
     title: 'Your keys, encrypted',
-    desc: 'AES-256-GCM encrypted keys at rest. Zero traffic logging. Kill switch blocks leaks if the tunnel ever drops.',
+    desc: 'AES-256-GCM encrypted keys at rest. Zero content logging — we never see what you browse. Kill switch blocks leaks if the tunnel ever drops.',
   },
   {
     icon: '📱',
@@ -116,7 +116,7 @@ export default function Landing() {
           </div>
           <div className="card text-center py-6">
             <div className="text-3xl font-bold text-white">0</div>
-            <div className="text-sm text-slate-400">traffic logs</div>
+            <div className="text-sm text-slate-400">content logs</div>
           </div>
         </div>
       </section>
@@ -182,7 +182,7 @@ export default function Landing() {
       </section>
 
       <footer className="border-t border-stealth-700/50 py-8 text-center text-sm text-slate-500">
-        © {new Date().getFullYear()} StealthVPN — No traffic logs. No IP logs. Ever.
+        © {new Date().getFullYear()} StealthVPN — No content logs. No browsing history. Ever.
       </footer>
     </div>
   )

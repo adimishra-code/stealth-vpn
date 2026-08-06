@@ -41,6 +41,10 @@ const ServerNodeSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  maxPeers: {
+    type: Number,
+    default: 200,
+  },
   lastHealthCheck: Date,
   realityPublicKey: String,
   realityShortId: String,

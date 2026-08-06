@@ -19,7 +19,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom', 'react-redux'],
+          vendor: ['react', 'react-redux', 'react-router'],
           charts: ['recharts'],
         },
       },

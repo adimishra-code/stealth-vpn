@@ -34,7 +34,11 @@ async function getServerNode(name) {
 function generateWGConfig({ privateKey, assignedIP, serverNode, mode }) {
   const endpoint = `${serverNode.ip}:${serverNode.wgPort}`;
 
-  let allowedIPs = '0.0.0.0/0, ::/0';
+  // IPv4-only tunnel: clients get an IPv4 address with no IPv6 route inside
+  // the tunnel. Routing ::/0 here would send native-IPv6 traffic (e.g. DNS or
+  // a dual-stack app) outside the tunnel — an IPv6 leak. IPv6 is blocked by
+  // the server's net.ipv6.conf.wg0.disable_ipv6=1 and the client kill switch.
+  const allowedIPs = '0.0.0.0/0';
   const postUp = `iptables -I OUTPUT ! -o %i -m mark ! --mark $(wg show %i fwmark) -m addrtype ! --dst-type LOCAL -j REJECT`;
   const preDown = `iptables -D OUTPUT ! -o %i -m mark ! --mark $(wg show %i fwmark) -m addrtype ! --dst-type LOCAL -j REJECT`;
 

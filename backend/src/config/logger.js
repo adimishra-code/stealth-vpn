@@ -1,6 +1,9 @@
 const winston = require('winston');
 const env = require('./env');
 
+// Production writes structured JSON to STDOUT only. Local files vanish when a
+// container restarts, so the platform (Docker logs, CloudWatch, etc.) owns
+// log persistence, rotation and retention. Development keeps pretty console.
 const logger = winston.createLogger({
   level: env.NODE_ENV === 'production' ? 'info' : 'debug',
   format: winston.format.combine(
@@ -23,14 +26,5 @@ const logger = winston.createLogger({
     }),
   ],
 });
-
-if (env.NODE_ENV === 'production') {
-  logger.add(
-    new winston.transports.File({ filename: 'logs/error.log', level: 'error', maxsize: 5242880, maxFiles: 7 })
-  );
-  logger.add(
-    new winston.transports.File({ filename: 'logs/combined.log', maxsize: 5242880, maxFiles: 7 })
-  );
-}
 
 module.exports = logger;

@@ -11,6 +11,15 @@
     "lint": "eslint src/",
     "test": "jest --forceExit --detectOpenHandles"
   },
+  "jest": {
+    "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/tests/setup-env.js"
+    ],
+    "testMatch": [
+      "<rootDir>/tests/**/*.test.js"
+    ]
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
@@ -32,6 +41,11 @@
     "stripe": "^16.8.0",
     "winston": "^3.14.0",
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "mongodb-memory-server": "^10.1.2",
+    "supertest": "^7.0.0"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const Device = require('../models/Device');
+const ServerNode = require('../models/ServerNode');
 
 const vpn = require('./vpn.service');
 const xray = require('./xray.service');
@@ -17,6 +18,13 @@ const PLAN_LIMITS = {
   team: { devices: 10 },
 };
 
+// Monthly quota in MB. null = unlimited. Enforced by the bandwidth cron.
+const PLAN_QUOTAS = {
+  basic: 500 * 1024, // 500 GB
+  pro: null,
+  team: null,
+};
+
 async function enforceDeviceLimit(userId, plan) {
   const activeDevices = await Device.countDocuments({ userId, isActive: true });
   const limit = PLAN_LIMITS[plan]?.devices ?? 0;
@@ -25,14 +33,43 @@ async function enforceDeviceLimit(userId, plan) {
   }
 }
 
+// 'auto' (or omitted) picks the online node with the lowest active-peers load;
+// an explicit name is honored only if it has capacity left. Prevents every
+// user piling onto Mumbai until it falls over.
+async function resolveServerNode(serverNodeName) {
+  if (serverNodeName && serverNodeName !== 'auto') {
+    const node = await vpn.getServerNode(serverNodeName);
+    const active = await Device.countDocuments({ serverNode: node.name, isActive: true });
+    if (node.maxPeers && active >= node.maxPeers) {
+      throw new ApiError(503, `Server "${node.name}" is at capacity`);
+    }
+    return node.name;
+  }
+
+  const nodes = await ServerNode.find({ isOnline: true });
+  const candidates = [];
+  for (const node of nodes) {
+    const active = await Device.countDocuments({ serverNode: node.name, isActive: true });
+    if (node.maxPeers && active >= node.maxPeers) continue;
+    candidates.push({ name: node.name, load: active / (node.maxPeers || 1) });
+  }
+  if (!candidates.length) {
+    throw new ApiError(503, 'All server nodes are at capacity');
+  }
+  candidates.sort((a, b) => a.load - b.load);
+  return candidates[0].name;
+}
+
 async function provisionDevice({ user, plan, serverNodeName, deviceName, mode }) {
   await enforceDeviceLimit(user._id, plan);
 
+  const resolvedNodeName = await resolveServerNode(serverNodeName);
+
   const { privateKey, publicKey, encryptedPrivateKey, serverNode } = await vpn.createDeviceOnNode({
-    serverNodeName,
+    serverNodeName: resolvedNodeName,
     plan,
   });
-  const { assignedIP } = await allocateIP(serverNodeName);
+  const { assignedIP } = await allocateIP(resolvedNodeName);
   const uuid = randomUUID();
 
   let peerProvisioned = false;
@@ -50,10 +87,11 @@ async function provisionDevice({ user, plan, serverNodeName, deviceName, mode })
       wgPublicKey: publicKey,
       wgPrivateKey: encryptedPrivateKey,
       assignedIP,
-      serverNode: serverNodeName,
+      serverNode: resolvedNodeName,
       mode,
       xrayUUID: uuid,
       plan,
+      quotaMB: PLAN_QUOTAS[plan] ?? null,
       tcHandle: null,
       isActive: true,
     });
@@ -103,7 +141,7 @@ async function provisionDevice({ user, plan, serverNodeName, deviceName, mode })
   logger.info('Device provisioned', {
     userId: user._id.toString(),
     deviceId: device._id.toString(),
-    serverNode: serverNodeName,
+    serverNode: resolvedNodeName,
     plan,
     assignedIP,
   });
@@ -162,6 +200,8 @@ async function revokeDevice(device) {
 module.exports = {
   provisionDevice,
   revokeDevice,
+  resolveServerNode,
   PLAN_LIMITS,
+  PLAN_QUOTAS,
   enforceDeviceLimit,
 };

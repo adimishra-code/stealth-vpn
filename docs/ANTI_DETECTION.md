@@ -151,6 +151,23 @@ PreDown = iptables -D OUTPUT -o wg0 ...
 Result: if tunnel drops for 0.25s (Persistent Keepalive), all Internet traffic is blocked.
 Only LAN stays reachable.
 
+**Platform coverage (read before shipping to users):**
+
+| Platform | Kill switch | How it is enforced |
+|---|---|---|
+| Linux (wg-quick) | Built-in | `PostUp`/`PreDown` rules above — automatic |
+| Android (official app) | Built-in | "Block untunneled traffic" toggle in the tunnel config — must be ON |
+| iOS (official app) | Built-in | "Block untunneled traffic (kill switch)" toggle — must be ON |
+| macOS (official app) | Built-in | "Block untunneled traffic" toggle — must be ON |
+| Windows (official app) | Built-in | "Block untunneled traffic" toggle — must be ON |
+
+The generated `.conf` contains the tunnel credentials only; it CANNOT enforce
+the kill switch on Android/iOS/macOS/Windows. The onboarding copy in
+ConfigDelivery must instruct users to enable the toggle in the app, or those
+platforms will falsely believe they are protected. The `.conf` may embed
+`BlockUntunneledTraffic = true` (supported by WireGuard-for-Android config
+parser, ignored elsewhere) as a first line of defense.
+
 ### DNS Leak prevention
 
 Server forward 1.1.1.1 via DoH:

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { useSelector } from 'react-redux'
 import { selectUser, setUser } from '../features/auth/authSlice'
 import { useDispatch } from 'react-redux'
@@ -24,7 +24,7 @@ export default function Dashboard() {
   const [showAdd, setShowAdd] = useState(false)
   const [step, setStep] = useState('form') // form | payment | delivery
   const [deviceName, setDeviceName] = useState('')
-  const [serverNode, setServerNode] = useState('mumbai')
+  const [serverNode, setServerNode] = useState('auto')
   const [mode, setMode] = useState('stealth')
   const [plan, setPlan] = useState('pro')
   const [orderId, setOrderId] = useState(null)
@@ -199,6 +199,7 @@ export default function Dashboard() {
                     <div>
                       <label className="label">Server node</label>
                       <select className="input" value={serverNode} onChange={(e) => setServerNode(e.target.value)}>
+                        <option value="auto">Auto (recommended — least loaded)</option>
                         {servers.map((s) => (
                           <option key={s.name} value={s.name}>
                             {s.name} — {s.region} ({s.isOnline ? 'online' : 'offline'})

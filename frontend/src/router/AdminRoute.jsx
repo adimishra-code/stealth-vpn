@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate } from 'react-router'
 import { useSelector } from 'react-redux'
 import { selectUser, selectToken } from '../features/auth/authSlice'
 

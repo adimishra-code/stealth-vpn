@@ -48,6 +48,22 @@ const DeviceSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // wg show wg0 transfer returns CUMULATIVE counters since interface start.
+  // We store the last-seen baseline and $inc only the delta each sync pass.
+  lastWgRxBytes: {
+    type: Number,
+  },
+  lastWgTxBytes: {
+    type: Number,
+  },
+  quotaMB: {
+    type: Number,
+    default: null,
+  },
+  quotaExceeded: {
+    type: Boolean,
+    default: false,
+  },
   tcHandle: String,
   lastSeen: Date,
   createdAt: {

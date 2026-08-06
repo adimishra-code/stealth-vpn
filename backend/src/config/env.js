@@ -5,6 +5,19 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(5000),
   FRONTEND_URL: z.string().url(),
 
+  // Set to 'false' on every worker except ONE — crons must never run on
+  // multiple replicas (duplicate expiry emails, doubled bandwidth deltas,
+  // doubled SSH load). Leader election is manual via this flag.
+  CRON_ENABLED: z.preprocess(
+    (v) => v === true || v === 'true',
+    z.boolean().default(true)
+  ),
+
+  // Number of reverse-proxy hops to trust for req.ip (Cloudflare: 1).
+  // Rate limiting keys on req.ip — leaving this 0 behind a proxy means
+  // every user shares the proxy's IP and one user can rate-limit everyone.
+  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+
   MONGO_URI: z.string().startsWith('mongodb'),
 
   JWT_ACCESS_SECRET: z.string().min(32),
@@ -22,6 +35,13 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1),
 
   SSH_PRIVATE_KEY_PATH: z.string().min(1),
+
+  // When true, bandwidth quota enforcement revokes devices over their
+  // plan quota. Basic = 500 GB/month; pro/team unlimited.
+  QUOTA_ENFORCE: z.preprocess(
+    (v) => v === true || v === 'true' || v === undefined,
+    z.boolean().default(true)
+  ),
 
   SMTP_HOST: z.string().min(1),
   SMTP_PORT: z.coerce.number().int().positive().default(587),

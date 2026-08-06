@@ -1,4 +1,4 @@
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { useDispatch, useSelector } from 'react-redux'
 import { selectUser, clearCredentials } from '../features/auth/authSlice'
 import { useLogoutMutation } from '../features/auth/authApi'
@@ -94,7 +94,7 @@ export default function Layout() {
 
       <footer className="border-t border-stealth-700/50 py-6">
         <div className="max-w-6xl mx-auto px-4 text-center text-sm text-slate-500">
-          © {new Date().getFullYear()} StealthVPN — No traffic logs. No IP logs. Ever.
+          © {new Date().getFullYear()} StealthVPN — No content logs. No browsing history. Ever.
         </div>
       </footer>
     </div>

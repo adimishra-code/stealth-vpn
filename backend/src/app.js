@@ -19,6 +19,11 @@ const { sendError } = require('./utils/ApiError');
 function createApp() {
   const app = express();
 
+  // Behind a reverse proxy (Cloudflare, nginx), req.ip is the proxy unless we
+  // declare trust. Rate limiters key on req.ip — without this, one user can
+  // exhaust the shared proxy IP budget and rate-limit everyone.
+  app.set('trust proxy', env.TRUST_PROXY);
+
   // ── Security headers ─────────────────────────────────────────────────────
   app.use(helmet());
   app.use(

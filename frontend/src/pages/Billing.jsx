@@ -31,7 +31,7 @@ export default function Billing() {
     setBusy(plan)
     try {
       if (gateway === 'razorpay') {
-        const res = await createOrder({ plan, serverNode: 'mumbai', deviceName: 'billing-sub', mode: 'stealth' }).unwrap()
+        const res = await createOrder({ plan, serverNode: 'auto', deviceName: 'billing-sub', mode: 'stealth' }).unwrap()
         const options = {
           key: import.meta.env.VITE_RAZORPAY_KEY_ID,
           amount: res.amount,
@@ -46,7 +46,7 @@ export default function Billing() {
       } else {
         const res = await createStripeSession({
           plan,
-          serverNode: 'mumbai',
+          serverNode: 'auto',
           deviceName: 'billing-sub',
           mode: 'stealth',
           successUrl: `${window.location.origin}/billing?success=1`,

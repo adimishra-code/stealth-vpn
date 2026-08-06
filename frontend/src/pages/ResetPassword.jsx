@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router'
 import { useResetPasswordMutation } from '../features/auth/authApi'
 
 export default function ResetPassword() {
