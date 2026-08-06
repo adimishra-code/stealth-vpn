@@ -3,11 +3,20 @@ const env = require('./src/config/env');
 const connectDB = require('./src/config/db');
 const createApp = require('./src/app');
 const logger = require('./src/config/logger');
+const { startExpiryCron } = require('./src/cron/expiry.cron');
+const { startBandwidthCron } = require('./src/cron/bandwidth.cron');
+const { startHealthCheckCron } = require('./src/cron/health.cron');
 
 const app = createApp();
 
 async function start() {
   await connectDB();
+
+  startExpiryCron();
+  startBandwidthCron();
+  startHealthCheckCron();
+  logger.info('Cron jobs started');
+
   app.listen(env.PORT, () => {
     logger.info(`StealthVPN API listening on port ${env.PORT} [${env.NODE_ENV}]`);
   });

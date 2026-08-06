@@ -9,6 +9,9 @@ const logger = require('./config/logger');
 const authRoutes = require('./routes/auth.routes');
 const paymentRoutes = require('./routes/payment.routes');
 const webhookRoutes = require('./routes/webhook.routes');
+const deviceRoutes = require('./routes/device.routes');
+const serverRoutes = require('./routes/server.routes');
+const adminRoutes = require('./routes/admin.routes');
 
 const { apiLimiter } = require('./middleware/rateLimit.middleware');
 const { sendError } = require('./utils/ApiError');
@@ -56,6 +59,9 @@ function createApp() {
   // Webhook first — must match before authenticated routes (raw body already parsed)
   app.use('/api/payment/webhook', webhookRoutes);
   app.use('/api/payment', paymentRoutes);
+  app.use('/api/devices', deviceRoutes);
+  app.use('/api/servers', serverRoutes);
+  app.use('/api/admin', adminRoutes);
 
   // ── 404 ──────────────────────────────────────────────────────────────────
   app.use((req, res) => {

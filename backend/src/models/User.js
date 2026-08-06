@@ -37,6 +37,8 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  banReason: String,
+  bannedAt: Date,
 
   razorpayCustomerId: String,
   stripeCustomerId: String,
