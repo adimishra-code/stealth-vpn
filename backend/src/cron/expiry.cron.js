@@ -4,14 +4,18 @@ const Device = require('../models/Device');
 const provisioning = require('../services/provisioning.service');
 const emailService = require('../services/email.service');
 const logger = require('../config/logger');
+const { alertCronFailure, alertError } = require('../services/alert.service');
 
 function startExpiryCron() {
   cron.schedule('0 2 * * *', async () => {
     try {
       await runExpiryPass();
     } catch (err) {
-      // node-cron does not handle a rejected callback — without this the process exits.
+      // node-cron does not handle a rejected callback — without this the
+      // process exits. Alert operators: failed expiry revocations leave paid
+      // users with live tunnels.
       logger.error('Expiry cron failed', { error: err.message, stack: err.stack });
+      alertCronFailure('expiry', err);
     }
   }, { timezone: 'UTC' });
 }
@@ -62,6 +66,13 @@ async function runExpiryPass() {
         logger.error('Failed to revoke device on expiry — will retry next pass', {
           deviceId: device._id.toString(),
           error: err.message,
+        });
+        alertError({
+          source: 'cron.expiry',
+          title: `Revoke failed for device ${device._id}`,
+          message: err.message,
+          details: { deviceId: device._id.toString(), userId: user._id.toString() },
+          err,
         });
       }
     }

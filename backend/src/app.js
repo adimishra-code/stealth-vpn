@@ -14,7 +14,8 @@ const serverRoutes = require('./routes/server.routes');
 const adminRoutes = require('./routes/admin.routes');
 
 const { apiLimiter } = require('./middleware/rateLimit.middleware');
-const { sendError } = require('./utils/ApiError');
+const { ApiError, sendError } = require('./utils/ApiError');
+const { alertError } = require('./services/alert.service');
 
 function createApp() {
   const app = express();
@@ -76,6 +77,20 @@ function createApp() {
   // ── Error handler ────────────────────────────────────────────────────────
   app.use((err, req, res, next) => {
     logger.error(err.message, { stack: err.stack, path: req.path });
+
+    // 4xx client errors are expected and noisy (bad input, races the client
+    // can retry) — only 5xx reaches alerting. Throttled per error signature.
+    const isServerError = !(err instanceof ApiError) || err.statusCode >= 500;
+    if (isServerError) {
+      alertError({
+        source: 'http',
+        title: `HTTP error on ${req.method} ${req.path}`,
+        message: err.message,
+        details: { stack: err.stack, method: req.method, path: req.path },
+        err,
+      });
+    }
+
     sendError(res, err);
   });
 

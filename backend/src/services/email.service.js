@@ -125,6 +125,7 @@ async function sendPaymentFailedEmail(user) {
 }
 
 module.exports = {
+  transporter,
   sendVerifyEmail,
   sendPasswordResetEmail,
   sendRenewalWarningEmail,

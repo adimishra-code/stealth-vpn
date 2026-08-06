@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const ServerNode = require('../models/ServerNode');
 const bandwidthService = require('../services/bandwidth.service');
 const logger = require('../config/logger');
+const { alertCronFailure } = require('../services/alert.service');
 
 function startBandwidthCron() {
   cron.schedule('*/5 * * * *', async () => {
@@ -14,6 +15,7 @@ function startBandwidthCron() {
       }
     } catch (err) {
       logger.error('Bandwidth cron error', { error: err.message });
+      alertCronFailure('bandwidth', err);
     }
   });
 }

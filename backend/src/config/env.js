@@ -49,6 +49,16 @@ const envSchema = z.object({
   SMTP_PASS: z.string().min(1),
   EMAIL_FROM: z.string().email(),
 
+  // ── Alerting ──────────────────────────────────────────────────────────────
+  // 5xx errors, cron failures and node-down events alert via email (if set),
+  // a generic webhook (Slack/Discord/Telegram-style JSON POST), and/or Sentry
+  // (lazy-loaded only when SENTRY_DSN is set AND @sentry/node is installed —
+  // it is an optional dependency, not a package.json requirement).
+  ALERT_EMAIL_TO: z.string().email().optional(),
+  ALERT_WEBHOOK_URL: z.string().url().optional(),
+  ALERT_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(5),
+  SENTRY_DSN: z.string().url().optional(),
+
   NODE_MUMBAI_IP: z.string().optional(),
   NODE_MUMBAI_WG_PUBLIC_KEY: z.string().optional(),
   NODE_MUMBAI_REALITY_PUBLIC_KEY: z.string().optional(),

@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const ServerNode = require('../models/ServerNode');
 const { sshConnect } = require('../services/vpn.service');
 const logger = require('../config/logger');
+const { alertError } = require('../services/alert.service');
 
 const DOWN_ALERT_THRESHOLD_MS = 5 * 60 * 1000;
 
@@ -33,6 +34,12 @@ function startHealthCheckCron() {
           logger.warn('Node went offline', { node: node.name, ip: node.ip });
           if (new Date() - new Date(node.lastHealthCheck) > DOWN_ALERT_THRESHOLD_MS) {
             logger.error('Node has been offline >5min', { node: node.name });
+            alertError({
+              source: 'cron.health',
+              title: `VPN node offline >5min: ${node.name}`,
+              message: `${node.name} (${node.ip}) unreachable — check xray/wg0 status`,
+              details: { node: node.name, ip: node.ip },
+            });
           }
         }
       } catch (err) {
@@ -46,6 +53,13 @@ function startHealthCheckCron() {
         }
         if (new Date() - new Date(node.lastHealthCheck) > DOWN_ALERT_THRESHOLD_MS) {
           logger.error('Node health check failed >5min', { node: node.name, error: err.message });
+          alertError({
+            source: 'cron.health',
+            title: `VPN node health check failing >5min: ${node.name}`,
+            message: `${node.name} (${node.ip}) — ${err.message}`,
+            details: { node: node.name, ip: node.ip, error: err.message },
+            err,
+          });
         }
       } finally {
         // Runs every 2 minutes against every node; disposing only on the happy

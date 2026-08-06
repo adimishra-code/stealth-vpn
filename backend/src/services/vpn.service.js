@@ -46,6 +46,10 @@ function generateWGConfig({ privateKey, assignedIP, serverNode, mode }) {
 PrivateKey = ${privateKey}
 Address = ${assignedIP}/32
 DNS = 10.8.0.1
+# Kill switch, enforced by the official Android/iOS/macOS/Windows apps
+# (BlockUntunneledTraffic = true). wg-quick on Linux ignores this key and
+# uses the PostUp/PreDown REJECT rules below instead.
+BlockUntunneledTraffic = true
 PostUp = ${postUp}
 PreDown = ${preDown}
 

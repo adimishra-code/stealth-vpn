@@ -75,8 +75,9 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose 
           </div>
 
           <p className="text-[11px] text-slate-600 border-t border-stealth-700 pt-4">
-            Keep the kill switch enabled in WireGuard. Your private key is stored encrypted
-            on our servers (AES-256-GCM) and shown here only once.
+            Kill switch is on by default (BlockUntunneledTraffic = true). If you import this
+            config into a third-party client, enable that client's own kill switch too.
+            Your private key is stored encrypted on our servers (AES-256-GCM) and shown here only once.
           </p>
         </div>
       </div>

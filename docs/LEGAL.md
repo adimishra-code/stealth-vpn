@@ -153,12 +153,13 @@ Indian law.
 - WireGuard private keys are encrypted at rest (AES-256-GCM); the encryption
   key never resides in the database.
 - Connections are encrypted end-to-end between the user device and our edge.
-- The kill switch (Linux clients) blocks all non-tunnel traffic when the
-  tunnel drops. **Windows, macOS, Android and iOS rely on the WireGuard
-  application's own kill-switch / "block untunneled traffic" setting, which
-  must be enabled in the app** — the .conf alone cannot enforce it on those
-  platforms. Users are instructed to enable it during setup (see
-  ConfigDelivery).
+- Kill switch: every generated configuration carries `BlockUntunneledTraffic = true`
+  (honored by the official WireGuard apps on Android, iOS, macOS and Windows)
+  plus wg-quick `PostUp`/`PreDown` REJECT rules for Linux clients — the tunnel
+  blocks all non-tunnel traffic by default on every supported platform, with
+  no manual toggle required. Users importing the config into a third-party
+  client are instructed to enable that client's own kill-switch option
+  (see ConfigDelivery).
 
 ---
 
