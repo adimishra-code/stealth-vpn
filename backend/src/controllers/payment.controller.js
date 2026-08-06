@@ -1,5 +1,3 @@
-const crypto = require('crypto');
-const User = require('../models/User');
 const Invoice = require('../models/Invoice');
 const env = require('../config/env');
 const logger = require('../config/logger');
@@ -16,7 +14,7 @@ exports.createOrder = asyncHandler(async (req, res) => {
   await Invoice.create({
     userId: req.user._id,
     plan,
-    amountINR: paymentService.PLAN_PRICES_INR[plan],
+    amount: paymentService.PLAN_PRICES_INR[plan],
     currency: 'INR',
     gateway: 'razorpay',
     gatewayOrderId: order.id,
@@ -41,8 +39,10 @@ exports.verifyPayment = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Invalid payment signature');
   }
 
+  // Atomic claim: only the first caller flips pending -> paid, so a concurrent
+  // webhook for the same order cannot also provision and double-credit the plan.
   const invoice = await Invoice.findOneAndUpdate(
-    { gatewayOrderId: orderId, gateway: 'razorpay' },
+    { gatewayOrderId: orderId, gateway: 'razorpay', status: 'pending' },
     {
       $set: {
         status: 'paid',
@@ -53,24 +53,32 @@ exports.verifyPayment = asyncHandler(async (req, res) => {
     { new: true }
   );
   if (!invoice) {
-    throw new ApiError(404, 'Invoice not found for this order');
+    const existing = await Invoice.findOne({ gatewayOrderId: orderId, gateway: 'razorpay' });
+    if (!existing) {
+      throw new ApiError(404, 'Invoice not found for this order');
+    }
+    throw new ApiError(409, 'This payment has already been processed');
+  }
+
+  if (!invoice.userId.equals(req.user._id)) {
+    throw new ApiError(403, 'This order belongs to another account');
   }
 
   const user = req.user;
-  const result = await provisioningService.provisionDevice({
-    user,
-    plan,
-    serverNodeName: serverNode,
-    deviceName,
-    mode,
-    invoiceData: {
-      amountINR: invoice.amountINR,
-      currency: 'INR',
-      gateway: 'razorpay',
-      gatewayPaymentId: paymentId,
-      gatewayOrderId: orderId,
-    },
-  });
+  let result;
+  try {
+    result = await provisioningService.provisionDevice({
+      user,
+      plan: invoice.plan,
+      serverNodeName: serverNode,
+      deviceName,
+      mode,
+    });
+  } catch (err) {
+    // Release the claim so the user can retry instead of losing a paid order.
+    await Invoice.updateOne({ _id: invoice._id }, { $set: { status: 'pending' } });
+    throw err;
+  }
 
   logger.info('Razorpay payment verified + device provisioned', {
     userId: user._id.toString(),
@@ -78,7 +86,7 @@ exports.verifyPayment = asyncHandler(async (req, res) => {
     paymentId,
   });
 
-  res.json(result);
+  res.json({ ...result, invoiceId: invoice._id });
 });
 
 exports.stripeSession = asyncHandler(async (req, res) => {
@@ -100,7 +108,7 @@ exports.stripeSession = asyncHandler(async (req, res) => {
   await Invoice.create({
     userId: req.user._id,
     plan,
-    amountINR: paymentService.PLAN_PRICES_INR[plan],
+    amount: paymentService.PLAN_PRICES_USD[plan],
     currency: 'USD',
     gateway: 'stripe',
     gatewayOrderId: session.id,
@@ -123,28 +131,39 @@ exports.stripeConfirm = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Missing metadata in Stripe session');
   }
 
-  const user = await User.findById(meta.userId);
-  if (!user) throw new ApiError(404, 'User not found');
+  // The session id is not a secret — without this check any authenticated user
+  // could replay someone else's session and provision against their account.
+  if (meta.userId !== req.user._id.toString()) {
+    throw new ApiError(403, 'This checkout session belongs to another account');
+  }
 
-  const result = await provisioningService.provisionDevice({
-    user,
-    plan: meta.plan,
-    serverNodeName: meta.serverNode,
-    deviceName: meta.deviceName,
-    mode: meta.mode,
-    invoiceData: {
-      amountINR: paymentService.PLAN_PRICES_INR[meta.plan],
-      currency: 'USD',
-      gateway: 'stripe',
-      gatewayPaymentId: session_id,
-      gatewayOrderId: session_id,
-    },
-  });
-
-  await Invoice.findOneAndUpdate(
-    { gatewayOrderId: session_id, gateway: 'stripe' },
-    { $set: { status: 'paid', paidAt: new Date() } }
+  const invoice = await Invoice.findOneAndUpdate(
+    { gatewayOrderId: session_id, gateway: 'stripe', status: 'pending' },
+    { $set: { status: 'paid', gatewayPaymentId: session_id, paidAt: new Date() } },
+    { new: true }
   );
+  if (!invoice) {
+    const existing = await Invoice.findOne({ gatewayOrderId: session_id, gateway: 'stripe' });
+    if (!existing) {
+      throw new ApiError(404, 'Invoice not found for this session');
+    }
+    throw new ApiError(409, 'This payment has already been processed');
+  }
+
+  const user = req.user;
+  let result;
+  try {
+    result = await provisioningService.provisionDevice({
+      user,
+      plan: invoice.plan,
+      serverNodeName: meta.serverNode,
+      deviceName: meta.deviceName,
+      mode: meta.mode,
+    });
+  } catch (err) {
+    await Invoice.updateOne({ _id: invoice._id }, { $set: { status: 'pending' } });
+    throw err;
+  }
 
   logger.info('Stripe confirmed + device provisioned', {
     userId: user._id.toString(),
@@ -152,7 +171,7 @@ exports.stripeConfirm = asyncHandler(async (req, res) => {
     sessionId: session_id,
   });
 
-  res.json(result);
+  res.json({ ...result, invoiceId: invoice._id });
 });
 
 exports.listInvoices = asyncHandler(async (req, res) => {
@@ -163,23 +182,41 @@ exports.listInvoices = asyncHandler(async (req, res) => {
   res.json({ invoices });
 });
 
+// A duplicated header arrives as an array; comparing that to a string always
+// fails, which would reject a legitimate webhook.
+function singleHeader(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 exports.webhook = asyncHandler(async (req, res) => {
   const raw = req.body;
-  const sig = req.headers['x-razorpay-signature'];
+  const sig = singleHeader(req.headers['x-razorpay-signature']);
 
-  if (sig && paymentService.verifyRazorpayWebhook(raw, sig)) {
+  if (sig) {
+    if (!paymentService.verifyRazorpayWebhook(raw, sig)) {
+      logger.warn('Razorpay webhook signature invalid');
+      return res.status(400).json({ error: 'Invalid signature' });
+    }
+
     const event = JSON.parse(raw.toString());
     logger.info('Razorpay webhook', { event: event.event });
 
+    let outcome = 'ok';
     if (event.event === 'payment.captured') {
-      await webhookService.handleRazorpayRenewal(event.payload.payment.entity);
+      outcome = await webhookService.handleRazorpayRenewal(event.payload.payment.entity);
     } else if (event.event === 'payment.failed') {
-      await webhookService.handleRazorpayFailure(event.payload.payment.entity);
+      outcome = await webhookService.handleRazorpayFailure(event.payload.payment.entity);
+    }
+
+    // 5xx tells the gateway to redeliver; a 200 here would silently drop a
+    // payment whose invoice had not yet been committed.
+    if (outcome === 'retry') {
+      return res.status(503).json({ error: 'Not ready — please retry' });
     }
     return res.json({ status: 'ok' });
   }
 
-  const stripeSig = req.headers['stripe-signature'];
+  const stripeSig = singleHeader(req.headers['stripe-signature']);
   if (stripeSig) {
     const event = paymentService.verifyStripeWebhook(raw, stripeSig);
     if (!event) {
@@ -188,12 +225,17 @@ exports.webhook = asyncHandler(async (req, res) => {
     }
     logger.info('Stripe webhook', { type: event.type });
 
+    let outcome = 'ok';
     if (event.type === 'checkout.session.completed') {
-      await webhookService.handleStripeRenewal(event.data.object);
+      outcome = await webhookService.handleStripeRenewal(event.data.object);
+    }
+
+    if (outcome === 'retry') {
+      return res.status(503).json({ error: 'Not ready — please retry' });
     }
     return res.json({ status: 'ok' });
   }
 
-  logger.warn('Webhook received with no valid signature');
+  logger.warn('Webhook received with no signature header');
   return res.status(400).json({ error: 'No valid signature' });
 });

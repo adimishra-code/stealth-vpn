@@ -14,7 +14,6 @@ const DeviceSchema = new mongoose.Schema({
   wgPublicKey: {
     type: String,
     required: true,
-    unique: true,
   },
   wgPrivateKey: {
     type: String,
@@ -67,6 +66,7 @@ const DeviceSchema = new mongoose.Schema({
 
 DeviceSchema.index({ userId: 1 });
 DeviceSchema.index({ wgPublicKey: 1 }, { unique: true });
+DeviceSchema.index({ serverNode: 1, assignedIP: 1 }, { unique: true });
 DeviceSchema.index({ serverNode: 1, isActive: 1 });
 
 module.exports = mongoose.model('Device', DeviceSchema);

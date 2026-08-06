@@ -1,12 +1,13 @@
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const crypto = require('crypto');
-const env = require('../config/env');
 const logger = require('../config/logger');
 
 function generateWGKeypair() {
   try {
-    const privateKey = execSync('wg genkey').toString().trim();
-    const publicKey = execSync(`echo "${privateKey}" | wg pubkey`).toString().trim();
+    const privateKey = execFileSync('wg', ['genkey']).toString().trim();
+    // Piped through stdin rather than a shell string — the key is base64 and
+    // would otherwise be interpolated into a /bin/sh command line.
+    const publicKey = execFileSync('wg', ['pubkey'], { input: privateKey }).toString().trim();
     return { privateKey, publicKey };
   } catch (err) {
     logger.error('WireGuard keygen failed — is wireguard-tools installed?', { error: err.message });
@@ -15,7 +16,7 @@ function generateWGKeypair() {
 }
 
 function generatePresharedKey() {
-  return execSync('wg genpsk').toString().trim();
+  return execFileSync('wg', ['genpsk']).toString().trim();
 }
 
 function generateTCHandle() {

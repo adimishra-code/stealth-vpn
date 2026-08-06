@@ -73,28 +73,41 @@ exports.getRevenue = asyncHandler(async (req, res) => {
   const now = new Date();
   const dayMs = 86400000;
 
+  // Grouped by currency — INR (paise) and USD (cents) are different units and
+  // summing them together produces a meaningless figure.
   const revenue = await Invoice.aggregate([
     { $match: { status: 'paid' } },
     {
       $group: {
         _id: {
-          $dateToString: { format: '%Y-%m-%d', date: '$paidAt' },
+          date: { $dateToString: { format: '%Y-%m-%d', date: '$paidAt' } },
+          currency: '$currency',
         },
-        totalINR: { $sum: '$amountINR' },
+        total: { $sum: '$amount' },
         count: { $sum: 1 },
       },
     },
-    { $sort: { _id: 1 } },
+    {
+      $project: {
+        _id: 0,
+        date: '$_id.date',
+        currency: '$_id.currency',
+        total: 1,
+        count: 1,
+      },
+    },
+    { $sort: { date: 1 } },
   ]);
 
   const mrr = await Invoice.aggregate([
     { $match: { status: 'paid', paidAt: { $gte: new Date(now - 30 * dayMs) } } },
-    { $group: { _id: null, totalINR: { $sum: '$amountINR' }, count: { $sum: 1 } } },
+    { $group: { _id: '$currency', total: { $sum: '$amount' }, count: { $sum: 1 } } },
+    { $project: { _id: 0, currency: '$_id', total: 1, count: 1 } },
   ]);
 
   res.json({
     daily: revenue,
-    last30Days: mrr[0] || { totalINR: 0, count: 0 },
+    last30Days: mrr,
   });
 });
 

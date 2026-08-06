@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const ServerNodeSchema = new mongoose.Schema({
   name: {
     type: String,
-    unique: true,
     required: true,
   },
   ip: {

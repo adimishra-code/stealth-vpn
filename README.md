@@ -3,33 +3,38 @@
 A stealth VPN service built around WireGuard and Xray/REALITY, designed to stay
 usable on networks that actively fingerprint and block VPN traffic.
 
-> **Status: work in progress.** The backend API is feature-complete; the frontend
-> is not committed yet. VPN nodes are provisioned by hand via the scripts in
-> `scripts/`.
+> **Status: work in progress.** The backend API is feature-complete and the
+> React dashboard is functional. VPN nodes are provisioned by hand via the
+> scripts in `scripts/`.
 
 ## What's implemented
 
-- **Auth** — registration with email verification, login, JWT access/refresh
-  token rotation via httpOnly cookies, password reset, per-route rate limiting.
+- **Auth** — registration with email verification, login, JWT access tokens with
+  rotating refresh tokens (stored hashed, reuse revokes every session), password
+  reset, per-route rate limiting.
 - **Data models** — `User`, `Device`, `ServerNode`, `Invoice` (Mongoose).
 - **Devices** — add/revoke, WireGuard config and QR download, per-device stealth
   mode toggle, bandwidth usage.
-- **Payments** — Razorpay for INR, Stripe for international, with signature-verified
-  webhooks and invoice history.
+- **Payments** — Razorpay for INR, Stripe international. Signature-verified,
+  idempotent webhooks; a retried delivery cannot credit a plan twice.
 - **Admin** — user management and bans, revenue and bandwidth reporting, alerts.
 - **Provisioning** — WireGuard peer/key management, Xray REALITY config generation,
-  IP allocation, and SSH-driven node operations.
+  atomic IP allocation, SSH-driven node operations with rollback on failure.
 - **Cron jobs** — plan expiry with renewal warnings (daily), bandwidth sync
   (every 5 min), node health checks (every 2 min).
+- **Frontend** — dashboard, billing, servers, settings and admin screens, with
+  transparent access-token refresh on 401.
 
 ## Not yet built
 
-- Frontend dashboard
-- Automated tests
+- Automated test suite
+- Refunds and plan downgrades
 
 ## Stack
 
-Node.js 20+ · Express · MongoDB (Mongoose) · Zod · Winston · node-cron · WireGuard · Xray-core (REALITY)
+**Backend** — Node.js 20+ · Express · MongoDB (Mongoose) · Zod · Winston · node-cron
+**Frontend** — React 19 · Vite · Redux Toolkit Query · Tailwind · Recharts
+**VPN** — WireGuard · Xray-core (REALITY)
 
 ## Getting started
 
@@ -42,6 +47,12 @@ npm run dev
 
 The API listens on `PORT` (default `5000`). `GET /health` is a liveness check.
 
+```bash
+cd frontend
+npm install
+npm run dev            # proxies /api to localhost:5000
+```
+
 ### API routes
 
 | Method | Route                        | Notes                    |
@@ -53,6 +64,7 @@ The API listens on `PORT` (default `5000`). `GET /health` is a liveness check.
 | POST   | `/api/auth/logout`           |                          |
 | POST   | `/api/auth/forgot-password`  |                          |
 | POST   | `/api/auth/reset-password`   |                          |
+| GET    | `/api/auth/me`               | current user             |
 | GET    | `/api/devices`               | auth required            |
 | POST   | `/api/devices`               | provisions a WG peer     |
 | DELETE | `/api/devices/:id`           | revokes the peer         |
@@ -94,6 +106,12 @@ backend/
     middleware/        auth, admin, validation, rate limiting
     cron/              expiry, bandwidth sync, node health
     utils/             jwt, crypto, cookies, ip allocation, qr codes
+frontend/
+  src/
+    app/               redux store, RTK Query base api
+    features/          auth, devices, payment, admin
+    pages/             route-level screens
+    router/            auth and admin route guards
 scripts/               node provisioning and peer management (bash)
 docs/                  setup, xray config, anti-detection notes, legal
 ```

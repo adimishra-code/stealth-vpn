@@ -1,76 +1,95 @@
-const crypto = require('crypto');
 const User = require('../models/User');
 const Invoice = require('../models/Invoice');
-const env = require('../config/env');
 const logger = require('../config/logger');
 
 const paymentService = require('../services/payment.service');
 const emailService = require('../services/email.service');
-const provisioningService = require('../services/provisioning.service');
 
-async function handleRazorpayRenewal(payment) {
-  const invoice = await Invoice.findOne({ gatewayOrderId: payment.order_id, gateway: 'razorpay' });
+function extendedExpiry(user) {
+  const ms = paymentService.PLAN_DURATION_DAYS * 86400000;
+  const now = new Date();
+  return user.planExpiresAt && user.planExpiresAt > now
+    ? new Date(user.planExpiresAt.getTime() + ms)
+    : new Date(now.getTime() + ms);
+}
+
+// Returns 'ok' when applied, 'duplicate' when already processed (webhook retry),
+// or 'retry' when the invoice/user is not visible yet — the caller turns 'retry'
+// into a non-2xx so the gateway redelivers instead of dropping the payment.
+async function applyRenewal({ gateway, orderId, paymentId }) {
+  // Atomic pending -> paid claim. A retried webhook, or a concurrent client-side
+  // verify, matches zero documents and cannot credit the plan a second time.
+  const invoice = await Invoice.findOneAndUpdate(
+    { gatewayOrderId: orderId, gateway, status: 'pending' },
+    { $set: { status: 'paid', gatewayPaymentId: paymentId, paidAt: new Date() } },
+    { new: true }
+  );
+
   if (!invoice) {
-    logger.warn('Razorpay renewal: invoice not found', { orderId: payment.order_id });
-    return;
+    const existing = await Invoice.findOne({ gatewayOrderId: orderId, gateway });
+    if (!existing) {
+      logger.warn('Renewal webhook: invoice not found', { gateway, orderId });
+      return 'retry';
+    }
+    logger.info('Renewal webhook: already processed', { gateway, orderId });
+    return 'duplicate';
   }
+
   const user = await User.findById(invoice.userId);
-  if (!user) return;
+  if (!user) {
+    await Invoice.updateOne({ _id: invoice._id }, { $set: { status: 'pending' } });
+    logger.error('Renewal webhook: user missing', { gateway, orderId });
+    return 'retry';
+  }
 
-  invoice.status = 'paid';
-  invoice.gatewayPaymentId = payment.id;
-  invoice.paidAt = new Date();
-  await invoice.save();
-
-  const newExpiry = user.planExpiresAt && user.planExpiresAt > new Date()
-    ? new Date(user.planExpiresAt.getTime() + paymentService.PLAN_DURATION_DAYS * 86400000)
-    : new Date(Date.now() + paymentService.PLAN_DURATION_DAYS * 86400000);
-
-  user.planExpiresAt = newExpiry;
+  user.plan = invoice.plan;
+  user.planExpiresAt = extendedExpiry(user);
   user.isActive = true;
   user.notified = {};
   await user.save();
 
-  logger.info('Renewal via Razorpay webhook', { userId: user._id.toString(), newExpiry });
+  logger.info('Renewal applied', {
+    gateway,
+    userId: user._id.toString(),
+    planExpiresAt: user.planExpiresAt,
+  });
+  return 'ok';
+}
+
+function handleRazorpayRenewal(payment) {
+  return applyRenewal({
+    gateway: 'razorpay',
+    orderId: payment.order_id,
+    paymentId: payment.id,
+  });
+}
+
+function handleStripeRenewal(session) {
+  return applyRenewal({
+    gateway: 'stripe',
+    orderId: session.id,
+    paymentId: session.payment_intent || session.id,
+  });
 }
 
 async function handleRazorpayFailure(payment) {
-  const invoice = await Invoice.findOne({ gatewayOrderId: payment.order_id, gateway: 'razorpay' });
-  if (!invoice) return;
-  invoice.status = 'failed';
-  await invoice.save();
+  const invoice = await Invoice.findOneAndUpdate(
+    { gatewayOrderId: payment.order_id, gateway: 'razorpay', status: 'pending' },
+    { $set: { status: 'failed' } },
+    { new: true }
+  );
+  if (!invoice) return 'duplicate';
 
   const user = await User.findById(invoice.userId);
   if (user) {
-    try { await emailService.sendPaymentFailedEmail(user); } catch {}
+    try {
+      await emailService.sendPaymentFailedEmail(user);
+    } catch (err) {
+      logger.warn('Payment-failed email not sent', { error: err.message });
+    }
   }
   logger.warn('Payment failed via Razorpay webhook', { invoiceId: invoice._id.toString() });
-}
-
-async function handleStripeRenewal(session) {
-  const invoice = await Invoice.findOne({
-    gatewayPaymentId: session.id,
-    gateway: 'stripe',
-  });
-  if (!invoice) return;
-
-  const user = await User.findById(invoice.userId);
-  if (!user) return;
-
-  invoice.status = 'paid';
-  invoice.paidAt = new Date();
-  await invoice.save();
-
-  const newExpiry = user.planExpiresAt && user.planExpiresAt > new Date()
-    ? new Date(user.planExpiresAt.getTime() + paymentService.PLAN_DURATION_DAYS * 86400000)
-    : new Date(Date.now() + paymentService.PLAN_DURATION_DAYS * 86400000);
-
-  user.planExpiresAt = newExpiry;
-  user.isActive = true;
-  user.notified = {};
-  await user.save();
-
-  logger.info('Renewal via Stripe webhook', { userId: user._id.toString() });
+  return 'ok';
 }
 
 module.exports = {

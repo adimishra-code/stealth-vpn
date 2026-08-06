@@ -11,20 +11,31 @@ function ipFromOctet(subnetBase, octet) {
   return `${base}.${octet}`;
 }
 
+// .0 is the network address and .1 is the node's own wg0 address.
+const HOST_MIN = 2;
+const HOST_MAX = 254;
+
 async function allocateIP(serverNodeName) {
+  // Bounding the increment keeps a full node from ratcheting nextIP upward on
+  // every rejected call, and the atomic $inc guarantees two concurrent
+  // registrations never receive the same octet.
   const node = await ServerNode.findOneAndUpdate(
-    { name: serverNodeName },
+    { name: serverNodeName, nextIP: { $lte: HOST_MAX } },
     { $inc: { nextIP: 1 } },
     { new: true }
   );
+
   if (!node) {
-    throw new ApiError(404, `Server node "${serverNodeName}" not found`);
+    const exists = await ServerNode.exists({ name: serverNodeName });
+    if (!exists) {
+      throw new ApiError(404, `Server node "${serverNodeName}" not found`);
+    }
+    throw new ApiError(503, `Server "${serverNodeName}" has exhausted its IP space`);
   }
 
-  let nextOctet = node.nextIP - 1;
-  const hostMax = 254;
-  if (nextOctet > hostMax) {
-    throw new ApiError(503, `Server "${serverNodeName}" has exhausted its IP space`);
+  const nextOctet = node.nextIP - 1;
+  if (nextOctet < HOST_MIN) {
+    throw new ApiError(500, `Server "${serverNodeName}" has an invalid nextIP counter`);
   }
 
   const subnetBase = node.subnetCIDR.split('/')[0];

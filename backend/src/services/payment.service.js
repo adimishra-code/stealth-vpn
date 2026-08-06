@@ -2,6 +2,7 @@ const Razorpay = require('razorpay');
 const Stripe = require('stripe');
 const crypto = require('crypto');
 const env = require('../config/env');
+const logger = require('../config/logger');
 
 const PLAN_PRICES_INR = {
   basic: 9900,
@@ -34,12 +35,20 @@ function createRazorpayOrder(plan) {
   });
 }
 
+function timingSafeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function verifyRazorpaySignature({ orderId, paymentId, signature }) {
   const expected = crypto
     .createHmac('sha256', env.RAZORPAY_KEY_SECRET)
     .update(`${orderId}|${paymentId}`)
     .digest('hex');
-  return expected === signature;
+  return timingSafeCompare(expected, signature);
 }
 
 function verifyRazorpayWebhook(rawBody, signature) {
@@ -47,7 +56,7 @@ function verifyRazorpayWebhook(rawBody, signature) {
     .createHmac('sha256', env.RAZORPAY_WEBHOOK_SECRET)
     .update(rawBody)
     .digest('hex');
-  return expected === signature;
+  return timingSafeCompare(expected, signature);
 }
 
 async function createStripeCheckoutSession({ plan, successUrl, cancelUrl, metadata }) {
@@ -77,8 +86,9 @@ async function retrieveStripeSession(sessionId) {
 
 function verifyStripeWebhook(rawBody, signature) {
   try {
-    return Stripe.webhook.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
-  } catch {
+    return stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    logger.warn('Stripe webhook verification failed', { error: err.message });
     return null;
   }
 }

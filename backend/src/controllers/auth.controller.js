@@ -1,5 +1,5 @@
 const User = require('../models/User');
-const { signAccessToken, signRefreshToken, verifyRefreshToken } = require('../utils/jwt');
+const { signAccessToken, signRefreshToken, verifyRefreshToken, hashRefreshToken } = require('../utils/jwt');
 const { randomToken } = require('../utils/crypto');
 const { setRefreshCookie, clearRefreshCookie, getRefreshCookie } = require('../utils/cookies');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
@@ -8,6 +8,18 @@ const logger = require('../config/logger');
 
 const VERIFY_TOKEN_TTL_HOURS = 24;
 const RESET_TOKEN_TTL_HOURS = 1;
+const MAX_ACTIVE_SESSIONS = 5;
+
+function publicUser(user) {
+  return {
+    id: user._id,
+    email: user.email,
+    role: user.role,
+    plan: user.plan,
+    planExpiresAt: user.planExpiresAt,
+    emailVerified: user.emailVerified,
+  };
+}
 
 exports.register = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -80,9 +92,9 @@ exports.login = asyncHandler(async (req, res) => {
   const refreshToken = signRefreshToken(user);
 
   user.refreshTokens = user.refreshTokens || [];
-  user.refreshTokens.push(refreshToken);
-  if (user.refreshTokens.length > 5) {
-    user.refreshTokens = user.refreshTokens.slice(-5);
+  user.refreshTokens.push(hashRefreshToken(refreshToken));
+  if (user.refreshTokens.length > MAX_ACTIVE_SESSIONS) {
+    user.refreshTokens = user.refreshTokens.slice(-MAX_ACTIVE_SESSIONS);
   }
   await user.save();
 
@@ -91,14 +103,12 @@ exports.login = asyncHandler(async (req, res) => {
 
   res.json({
     accessToken,
-    user: {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-      plan: user.plan,
-      planExpiresAt: user.planExpiresAt,
-    },
+    user: publicUser(user),
   });
+});
+
+exports.me = asyncHandler(async (req, res) => {
+  res.json({ user: publicUser(req.user) });
 });
 
 exports.refresh = asyncHandler(async (req, res) => {
@@ -115,22 +125,35 @@ exports.refresh = asyncHandler(async (req, res) => {
     throw new ApiError(401, 'Invalid refresh token');
   }
 
-  const user = await User.findById(decoded.sub);
+  const presentedHash = hashRefreshToken(token);
+
+  // Atomically consume the presented token. If it matched zero documents it was
+  // already rotated away — that means either a replay or a stolen token, so
+  // every session for the account is dropped.
+  const user = await User.findOneAndUpdate(
+    { _id: decoded.sub, refreshTokens: presentedHash },
+    { $pull: { refreshTokens: presentedHash } },
+    { new: true }
+  );
+
   if (!user) {
-    throw new ApiError(401, 'User not found');
-  }
-  if (!user.refreshTokens || !user.refreshTokens.includes(token)) {
-    user.refreshTokens = [];
-    await user.save();
     clearRefreshCookie(res);
+    await User.updateOne({ _id: decoded.sub }, { $set: { refreshTokens: [] } });
+    logger.warn('Refresh token reuse detected — all sessions revoked', { userId: decoded.sub });
     throw new ApiError(401, 'Refresh token revoked');
   }
 
-  user.refreshTokens = user.refreshTokens.filter((t) => t !== token);
+  if (!user.isActive) {
+    clearRefreshCookie(res);
+    throw new ApiError(403, 'Account suspended');
+  }
+
   const newAccessToken = signAccessToken(user);
   const newRefreshToken = signRefreshToken(user);
-  user.refreshTokens.push(newRefreshToken);
-  await user.save();
+  await User.updateOne(
+    { _id: user._id },
+    { $push: { refreshTokens: { $each: [hashRefreshToken(newRefreshToken)], $slice: -MAX_ACTIVE_SESSIONS } } }
+  );
 
   setRefreshCookie(res, newRefreshToken);
   res.json({ accessToken: newAccessToken });
@@ -141,17 +164,15 @@ exports.logout = asyncHandler(async (req, res) => {
   if (token) {
     try {
       const decoded = verifyRefreshToken(token);
-      const user = await User.findById(decoded.sub);
-      if (user && user.refreshTokens) {
-        user.refreshTokens = user.refreshTokens.filter((t) => t !== token);
-        await user.save();
-      }
+      await User.updateOne(
+        { _id: decoded.sub },
+        { $pull: { refreshTokens: hashRefreshToken(token) } }
+      );
     } catch {
-      // ignore invalid token
+      // invalid token — nothing to revoke
     }
   }
   clearRefreshCookie(res);
-  logger.info('User logged out');
   res.json({ message: 'Logged out' });
 });
 

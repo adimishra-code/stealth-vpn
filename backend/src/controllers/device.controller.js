@@ -41,7 +41,15 @@ exports.revokeDevice = asyncHandler(async (req, res) => {
   if (!device) throw new ApiError(404, 'Device not found');
   if (!device.isActive) throw new ApiError(400, 'Device already revoked');
 
-  await provisioning.revokeDevice(device);
+  try {
+    await provisioning.revokeDevice(device);
+  } catch (err) {
+    logger.error('Revoke failed — device left active', {
+      deviceId: device._id.toString(),
+      error: err.message,
+    });
+    throw new ApiError(503, 'Could not reach the VPN node. Device is still active — please retry.');
+  }
 
   res.json({ message: 'Device revoked', deviceId: device._id });
 });

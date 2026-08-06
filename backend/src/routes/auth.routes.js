@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const { validate } = require('../middleware/validate.middleware');
+const { authMiddleware } = require('../middleware/auth.middleware');
 const { authLimiter, registerLimiter } = require('../middleware/rateLimit.middleware');
 const {
   registerSchema,
@@ -20,5 +21,6 @@ router.post('/refresh', authController.refresh);
 router.post('/logout', authController.logout);
 router.post('/forgot-password', validate(forgotPasswordSchema), authController.forgotPassword);
 router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
+router.get('/me', authMiddleware, authController.me);
 
 module.exports = router;

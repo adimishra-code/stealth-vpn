@@ -11,12 +11,14 @@ const InvoiceSchema = new mongoose.Schema({
     enum: ['basic', 'pro', 'team'],
     required: true,
   },
-  amountINR: {
+  // Minor units of `currency` (paise for INR, cents for USD).
+  amount: {
     type: Number,
     required: true,
   },
   currency: {
     type: String,
+    enum: ['INR', 'USD'],
     default: 'INR',
   },
   gateway: {

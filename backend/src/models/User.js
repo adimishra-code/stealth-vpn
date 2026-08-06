@@ -5,7 +5,6 @@ const UserSchema = new mongoose.Schema({
   email: {
     type: String,
     required: true,
-    unique: true,
     lowercase: true,
     trim: true,
   },
@@ -61,15 +60,15 @@ const UserSchema = new mongoose.Schema({
       delete ret.refreshTokens;
       delete ret.emailVerifyToken;
       delete ret.emailVerifyExpires;
-      delete ret.resetToken;
-      delete ret.resetTokenExpires;
+      delete ret.passwordResetToken;
+      delete ret.passwordResetExpires;
       delete ret.__v;
       return ret;
     },
   },
 });
 
-UserSchema.index({ email: 1 });
+UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ planExpiresAt: 1 });
 UserSchema.index({ isActive: 1, plan: 1 });
 

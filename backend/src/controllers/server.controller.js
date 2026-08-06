@@ -17,16 +17,18 @@ exports.serverHealth = asyncHandler(async (req, res) => {
   let xrayOk = false;
   let peerCount = 0;
 
+  let ssh = null;
   try {
-    const ssh = await sshConnect(node);
+    ssh = await sshConnect(node);
     const { stdout: wgOut } = await ssh.execCommand('wg show wg0');
     wgOk = wgOut.includes('wg0');
     peerCount = (wgOut.match(/peer:/g) || []).length;
     const { stdout: xrayOut } = await ssh.execCommand('systemctl is-active xray');
     xrayOk = xrayOut.trim() === 'active';
-    ssh.dispose();
   } catch (err) {
     logger.warn('Health check SSH failed', { node: node.name, error: err.message });
+  } finally {
+    ssh?.dispose();
   }
 
   res.json({

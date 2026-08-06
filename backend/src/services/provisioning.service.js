@@ -1,6 +1,5 @@
 const User = require('../models/User');
 const Device = require('../models/Device');
-const Invoice = require('../models/Invoice');
 
 const vpn = require('./vpn.service');
 const xray = require('./xray.service');
@@ -9,7 +8,7 @@ const { allocateIP } = require('../utils/ipAllocator');
 const { generateQRBase64 } = require('../utils/qrcode');
 const logger = require('../config/logger');
 const { ApiError } = require('../utils/ApiError');
-const { PLAN_DURATION_DAYS, PLAN_PRICES_INR } = require('./payment.service');
+const { PLAN_DURATION_DAYS } = require('./payment.service');
 
 const PLAN_LIMITS = {
   free: { devices: 0 },
@@ -26,7 +25,7 @@ async function enforceDeviceLimit(userId, plan) {
   }
 }
 
-async function provisionDevice({ user, plan, serverNodeName, deviceName, mode, invoiceData }) {
+async function provisionDevice({ user, plan, serverNodeName, deviceName, mode }) {
   await enforceDeviceLimit(user._id, plan);
 
   const { privateKey, publicKey, encryptedPrivateKey, serverNode } = await vpn.createDeviceOnNode({
@@ -36,46 +35,58 @@ async function provisionDevice({ user, plan, serverNodeName, deviceName, mode, i
   const { assignedIP } = await allocateIP(serverNodeName);
   const uuid = randomUUID();
 
+  let peerProvisioned = false;
+  let xrayAdded = false;
+  let device;
   try {
     await vpn.provisionPeer({ serverNode, publicKey, assignedIP, plan });
+    peerProvisioned = true;
     await xray.addXrayUser({ serverNode, uuid, flow: xray.FLOW_VISION });
+    xrayAdded = true;
+
+    device = await Device.create({
+      userId: user._id,
+      deviceName,
+      wgPublicKey: publicKey,
+      wgPrivateKey: encryptedPrivateKey,
+      assignedIP,
+      serverNode: serverNodeName,
+      mode,
+      xrayUUID: uuid,
+      plan,
+      tcHandle: null,
+      isActive: true,
+    });
   } catch (err) {
-    logger.error('Provisioning failed — rolling back IP allocation', {
+    // Undo whatever landed on the node. Without this the peer stays live on the
+    // remote host with no Device row, so nothing can ever revoke it.
+    if (xrayAdded) {
+      try {
+        await xray.removeXrayUser({ serverNode, uuid });
+      } catch (cleanupErr) {
+        logger.error('Rollback: failed to remove Xray user', {
+          uuid,
+          error: cleanupErr.message,
+        });
+      }
+    }
+    if (peerProvisioned) {
+      try {
+        await vpn.revokePeer({ serverNode, publicKey, tcHandle: null });
+      } catch (cleanupErr) {
+        logger.error('Rollback: failed to remove WireGuard peer', {
+          assignedIP,
+          error: cleanupErr.message,
+        });
+      }
+    }
+    // The allocated octet is deliberately not returned to the pool: decrementing
+    // the counter would hand the same IP to a concurrent request.
+    logger.error('Provisioning failed — rolled back node state', {
       error: err.message,
       assignedIP,
     });
-    const ServerNode = require('../models/ServerNode');
-    await ServerNode.findOneAndUpdate({ name: serverNodeName }, { $inc: { nextIP: -1 } });
     throw err;
-  }
-
-  const device = await Device.create({
-    userId: user._id,
-    deviceName,
-    wgPublicKey: publicKey,
-    wgPrivateKey: encryptedPrivateKey,
-    assignedIP,
-    serverNode: serverNodeName,
-    mode,
-    xrayUUID: uuid,
-    plan,
-    tcHandle: null,
-    isActive: true,
-  });
-
-  let invoice = null;
-  if (invoiceData) {
-    invoice = await Invoice.create({
-      userId: user._id,
-      plan,
-      amountINR: invoiceData.amountINR ?? PLAN_PRICES_INR[plan],
-      currency: invoiceData.currency ?? 'INR',
-      gateway: invoiceData.gateway,
-      gatewayPaymentId: invoiceData.gatewayPaymentId,
-      gatewayOrderId: invoiceData.gatewayOrderId,
-      status: 'paid',
-      paidAt: new Date(),
-    });
   }
 
   const now = new Date();
@@ -95,7 +106,6 @@ async function provisionDevice({ user, plan, serverNodeName, deviceName, mode, i
     serverNode: serverNodeName,
     plan,
     assignedIP,
-    invoiceId: invoice?._id?.toString(),
   });
 
   const configString = vpn.generateWGConfig({
@@ -119,7 +129,6 @@ async function provisionDevice({ user, plan, serverNodeName, deviceName, mode, i
     config: configString,
     qrDataUrl,
     expiresAt: newExpiry,
-    invoiceId: invoice?._id,
   };
 }
 
@@ -128,23 +137,23 @@ async function revokeDevice(device) {
   const node = await ServerNode.findOne({ name: device.serverNode });
   if (!node) {
     logger.warn('Cannot revoke — server node missing', { serverNode: device.serverNode });
+    device.isActive = false;
+    await device.save();
     return;
   }
-  try {
-    if (device.xrayUUID) {
-      await xray.removeXrayUser({ serverNode: node, uuid: device.xrayUUID });
-    }
-    await vpn.revokePeer({
-      serverNode: node,
-      publicKey: device.wgPublicKey,
-      tcHandle: device.tcHandle,
-    });
-  } catch (err) {
-    logger.error('Revoke failed (marking inactive anyway)', {
-      deviceId: device._id.toString(),
-      error: err.message,
-    });
+
+  // Deliberately not caught: if the peer is still live on the node, the device
+  // must stay active so a retry happens. Marking it inactive here would report
+  // revoked while the user keeps working VPN access.
+  if (device.xrayUUID) {
+    await xray.removeXrayUser({ serverNode: node, uuid: device.xrayUUID });
   }
+  await vpn.revokePeer({
+    serverNode: node,
+    publicKey: device.wgPublicKey,
+    tcHandle: device.tcHandle,
+  });
+
   device.isActive = false;
   await device.save();
   logger.info('Device revoked', { deviceId: device._id.toString() });
