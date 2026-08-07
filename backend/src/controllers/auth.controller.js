@@ -1,6 +1,8 @@
 const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+const { authenticator } = require('otplib');
 const { signAccessToken, signRefreshToken, verifyRefreshToken, hashRefreshToken } = require('../utils/jwt');
-const { randomToken } = require('../utils/crypto');
+const { randomToken, hashToken, encryptPrivateKey, decryptPrivateKey } = require('../utils/crypto');
 const { setRefreshCookie, clearRefreshCookie, getRefreshCookie } = require('../utils/cookies');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
 const emailService = require('../services/email.service');
@@ -10,6 +12,23 @@ const VERIFY_TOKEN_TTL_HOURS = 24;
 const RESET_TOKEN_TTL_HOURS = 1;
 const MAX_ACTIVE_SESSIONS = 5;
 
+// TOTP is admin-only (ADMIN-01); one step of clock drift is tolerated.
+authenticator.options = { window: 1, step: 30, digits: 6 };
+
+// allowUnenabled is set during enrollment, where the secret exists but the
+// flag has not flipped on yet.
+function verifyTotpCode(user, code, allowUnenabled = false) {
+  if (!user.totpSecretEnc) return false;
+  if (!user.totpEnabled && !allowUnenabled) return false;
+  try {
+    const secret = decryptPrivateKey(user.totpSecretEnc);
+    return authenticator.verify({ token: code, secret });
+  } catch (err) {
+    logger.error('TOTP secret decrypt failed', { userId: user._id.toString(), error: err.message });
+    return false;
+  }
+}
+
 function publicUser(user) {
   return {
     id: user._id,
@@ -18,6 +37,9 @@ function publicUser(user) {
     plan: user.plan,
     planExpiresAt: user.planExpiresAt,
     emailVerified: user.emailVerified,
+    // ADMIN-01: surface the flag (never the secret) so the settings UI can
+    // render the 2FA card.
+    totpEnabled: !!user.totpEnabled,
   };
 }
 
@@ -26,23 +48,34 @@ exports.register = asyncHandler(async (req, res) => {
 
   const existing = await User.findOne({ email });
   if (existing) {
-    throw new ApiError(409, 'Email already registered');
+    // Anti-enumeration: a 409 would confirm the email is taken. Return the
+    // same 201 instead, and burn the same bcrypt cost the real path pays so
+    // the two branches are indistinguishable by timing too.
+    await bcrypt.hash(password, 12);
+    logger.warn('Register attempt for existing email', { email });
+    return res.status(201).json({
+      message: 'Account created. Check your email to verify.',
+    });
   }
 
   const verifyToken = randomToken(32);
   const user = new User({
     email,
     passwordHash: password,
-    emailVerifyToken: verifyToken,
+    // CRYPTO-02: only the SHA-256 digest is stored — the raw token lives in
+    // the email link only, so a DB leak yields nothing replayable.
+    emailVerifyToken: hashToken(verifyToken),
     emailVerifyExpires: new Date(Date.now() + VERIFY_TOKEN_TTL_HOURS * 3600 * 1000),
   });
   await user.save();
 
-  try {
-    await emailService.sendVerifyEmail(user, verifyToken);
-  } catch (err) {
+  // Email delivery must never block account creation — a slow or dead SMTP
+  // server would otherwise hang the request (and the client's button). Fire
+  // it off and respond; failures are logged and the user can request a new
+  // link later.
+  emailService.sendVerifyEmail(user, verifyToken).catch((err) => {
     logger.warn('Failed to send verify email', { error: err.message });
-  }
+  });
 
   logger.info('User registered', { userId: user._id.toString(), email });
   res.status(201).json({
@@ -54,7 +87,7 @@ exports.register = asyncHandler(async (req, res) => {
 exports.verifyEmail = asyncHandler(async (req, res) => {
   const { token } = req.body;
   const user = await User.findOne({
-    emailVerifyToken: token,
+    emailVerifyToken: hashToken(token),
     emailVerifyExpires: { $gt: new Date() },
   });
   if (!user) {
@@ -74,18 +107,35 @@ exports.login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   const user = await User.findOne({ email });
   if (!user) {
+    // Anti-enumeration + timing: burn the same bcrypt cost the real path
+    // pays, so "no such user" and "wrong password" are indistinguishable.
+    await bcrypt.hash(password, 12);
     throw new ApiError(401, 'Invalid credentials');
   }
+
+  // Password is checked FIRST. Verification/suspension 403s only happen after
+  // a correct password — learning an account's verification state then
+  // requires already knowing its password.
+  const match = await user.comparePassword(password);
+  if (!match) {
+    throw new ApiError(401, 'Invalid credentials');
+  }
+
+  // ADMIN-01: TOTP challenge for admin accounts — second factor sits between
+  // "password correct" and "session issued". Missing or wrong codes are
+  // indistinguishable 401s.
+  if (user.role === 'admin' && user.totpEnabled) {
+    const { totpCode } = req.body;
+    if (!totpCode || !verifyTotpCode(user, totpCode)) {
+      throw new ApiError(401, totpCode ? 'Invalid two-factor code' : 'Two-factor code required');
+    }
+  }
+
   if (!user.emailVerified) {
     throw new ApiError(403, 'Please verify your email first');
   }
   if (!user.isActive) {
     throw new ApiError(403, 'Account suspended');
-  }
-
-  const match = await user.comparePassword(password);
-  if (!match) {
-    throw new ApiError(401, 'Invalid credentials');
   }
 
   const accessToken = signAccessToken(user);
@@ -120,7 +170,7 @@ exports.refresh = asyncHandler(async (req, res) => {
   let decoded;
   try {
     decoded = verifyRefreshToken(token);
-  } catch (err) {
+  } catch {
     clearRefreshCookie(res);
     throw new ApiError(401, 'Invalid refresh token');
   }
@@ -150,6 +200,14 @@ exports.refresh = asyncHandler(async (req, res) => {
 
   const newAccessToken = signAccessToken(user);
   const newRefreshToken = signRefreshToken(user);
+  // Step 2 of the rotation: register the fresh token hash. The pull (above)
+  // and this push are deliberately two separate writes — there is no way to
+  // make both atomic in Mongo, but the order is what keeps it safe:
+  //   * a crash between pull and push leaves the account logged out on this
+  //     session (the old token is already consumed). Safe failure mode —
+  //     the user simply signs in again; no session is ever double-active.
+  //   * a replay of the old token in that window finds zero documents and
+  //     triggers the full-session wipeout instead of succeeding.
   await User.updateOne(
     { _id: user._id },
     { $push: { refreshTokens: { $each: [hashRefreshToken(newRefreshToken)], $slice: -MAX_ACTIVE_SESSIONS } } }
@@ -176,24 +234,98 @@ exports.logout = asyncHandler(async (req, res) => {
   res.json({ message: 'Logged out' });
 });
 
+// SESSION-01 — log out every device at once. Wipes all refresh tokens so no
+// session can rotate again; the current access token stays valid only until
+// its short expiry, so the user is effectively signed out everywhere.
+exports.logoutAll = asyncHandler(async (req, res) => {
+  await User.updateOne({ _id: req.user._id }, { $set: { refreshTokens: [] } });
+  clearRefreshCookie(res);
+  logger.info('All sessions revoked by user', { userId: req.user._id.toString() });
+  res.json({ message: 'All devices signed out', sessionsRevoked: true });
+});
+
+// ADMIN-01 — generate a fresh TOTP secret for an admin account. Returns the
+// plaintext secret exactly once (for the authenticator app + QR); from then
+// on only the encrypted copy exists. totpEnabled stays false until the code
+// round-trips.
+exports.totpSetup = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'admin') {
+    throw new ApiError(403, 'Two-factor authentication is for admin accounts');
+  }
+
+  const secret = authenticator.generateSecret();
+  const otpauth = authenticator.keyuri(req.user.email, 'StealthVPN', secret);
+  await User.updateOne(
+    { _id: req.user._id },
+    { $set: { totpSecretEnc: encryptPrivateKey(secret), totpEnabled: false } }
+  );
+
+  logger.info('TOTP secret generated', { userId: req.user._id.toString() });
+  // The otpauth URI is enough for the client to render the QR itself.
+  res.json({ secret, otpauth });
+});
+
+// ADMIN-01 — complete enrollment: the code must verify against the secret
+// that was issued by setup, then the flag flips on.
+exports.totpVerify = asyncHandler(async (req, res) => {
+  const { totpCode } = req.body;
+  const user = await User.findById(req.user._id);
+  if (!user.totpSecretEnc) throw new ApiError(400, 'Run setup first');
+
+  if (!verifyTotpCode(user, totpCode, true)) {
+    throw new ApiError(400, 'Invalid code');
+  }
+
+  await User.updateOne({ _id: user._id }, { $set: { totpEnabled: true } });
+  logger.info('TOTP enabled', { userId: user._id.toString() });
+  res.json({ message: 'Two-factor authentication enabled', totpEnabled: true });
+});
+
+// ADMIN-01 — disable 2FA. Requires a valid code from the authenticator app;
+// a stolen session alone cannot strip it.
+exports.totpDisable = asyncHandler(async (req, res) => {
+  const { totpCode } = req.body;
+  const user = await User.findById(req.user._id);
+  if (!user.totpEnabled) throw new ApiError(400, 'Two-factor authentication is not enabled');
+
+  if (!verifyTotpCode(user, totpCode)) {
+    throw new ApiError(400, 'Invalid code');
+  }
+
+  await User.updateOne(
+    { _id: user._id },
+    { $set: { totpEnabled: false }, $unset: { totpSecretEnc: '' } }
+  );
+  logger.info('TOTP disabled', { userId: user._id.toString() });
+  res.json({ message: 'Two-factor authentication disabled', totpEnabled: false });
+});
+
 exports.forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
   const user = await User.findOne({ email });
   if (!user) {
+    // Constant-time branch: burn the same token generation the real path
+    // pays so account existence is not observable through response timing.
+    // (Rate-limited per IP+email by forgotPasswordLimiter.)
+    randomToken(32);
     res.json({ message: 'If the email exists, a reset link has been sent.' });
     return;
   }
 
   const resetToken = randomToken(32);
-  user.passwordResetToken = resetToken;
+  // TODO(security): resetToken travels to the client via the email link's
+  // query string. nginx must keep logging query strings off (deploy/nginx.conf
+  // log_format) — if the link format ever changes to a path-based token,
+  // keep it out of access logs the same way.
+  // CRYPTO-02: store the digest only; the raw token never touches the DB.
+  user.passwordResetToken = hashToken(resetToken);
   user.passwordResetExpires = new Date(Date.now() + RESET_TOKEN_TTL_HOURS * 3600 * 1000);
   await user.save();
 
-  try {
-    await emailService.sendPasswordResetEmail(user, resetToken);
-  } catch (err) {
+  // Same rule as register: never block the response on email delivery.
+  emailService.sendPasswordResetEmail(user, resetToken).catch((err) => {
     logger.error('Failed to send reset email', { error: err.message });
-  }
+  });
 
   res.json({ message: 'If the email exists, a reset link has been sent.' });
 });
@@ -201,7 +333,7 @@ exports.forgotPassword = asyncHandler(async (req, res) => {
 exports.resetPassword = asyncHandler(async (req, res) => {
   const { token, password } = req.body;
   const user = await User.findOne({
-    passwordResetToken: token,
+    passwordResetToken: hashToken(token),
     passwordResetExpires: { $gt: new Date() },
   });
   if (!user) {

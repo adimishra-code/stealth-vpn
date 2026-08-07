@@ -48,19 +48,37 @@ systemctl enable fail2ban
 systemctl start fail2ban
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Step 3: Harden SSH
+# Step 3: Harden SSH + create least-privilege operator user
 # ──────────────────────────────────────────────────────────────────────────────
 log "Hardening SSH..."
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%s)
 
+# Create the non-root user the control plane connects as. Root login is
+# disabled entirely — the backend only ever reaches this host as 'stealthnode'.
+id -u stealthnode >/dev/null 2>&1 || useradd -r -m -s /bin/bash stealthnode
+
+# Sudoers whitelist: exactly the commands StealthVPN needs on a node, nothing
+# else. No shell, no package manager, no file access.
+cat > /etc/sudoers.d/stealthnode << SUDOERS
+# StealthVPN node commands only — no shell, no arbitrary commands.
+Cmnd_Alias VPNNODE = /usr/bin/wg set wg0 *, /usr/bin/wg show *, /usr/bin/wg-quick save wg0, /usr/sbin/tc class *, /usr/sbin/tc filter *, /usr/local/bin/xray api *
+stealthnode ALL=(root) NOPASSWD: VPNNODE
+Defaults!VPNNODE !requiretty
+SUDOERS
+chmod 440 /etc/sudoers.d/stealthnode
+
 sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 sed -i 's/^#\?MaxAuthTries.*/MaxAuthTries 3/' /etc/ssh/sshd_config
 sed -i 's/^#\?LoginGraceTime.*/LoginGraceTime 20/' /etc/ssh/sshd_config
 
-# Allow only root user (SSH key only)
-grep -q '^AllowUsers root' /etc/ssh/sshd_config || \
-  echo "AllowUsers root" >> /etc/ssh/sshd_config
+# SSH key access for the operator user only — root can never log in.
+grep -q '^AllowUsers ' /etc/ssh/sshd_config && \
+  sed -i 's/^AllowUsers .*/AllowUsers stealthnode/' /etc/ssh/sshd_config || \
+  echo "AllowUsers stealthnode" >> /etc/ssh/sshd_config
+grep -q '^DenyUsers ' /etc/ssh/sshd_config && \
+  sed -i 's/^DenyUsers .*/DenyUsers root/' /etc/ssh/sshd_config || \
+  echo "DenyUsers root" >> /etc/ssh/sshd_config
 
 systemctl restart sshd
 
@@ -132,6 +150,49 @@ sysctl --system
 log "Starting WireGuard..."
 systemctl enable wg-quick@wg0
 systemctl start wg-quick@wg0
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Step 8b: Local DNS resolver — unbound on 10.8.0.1
+# ──────────────────────────────────────────────────────────────────────────────
+# The client config hands DNS = 10.8.0.1, so a resolver must actually listen
+# there — otherwise the node answers nothing and clients fall back to ISP DNS
+# (a leak). Unbound forwards upstream over DoT (TLS 853) to 1.1.1.1/8.8.8.8,
+# binds tunnel + loopback only, and refuses every other source.
+log "Installing unbound (local DNS resolver on 10.8.0.1:53)..."
+apt install -y unbound
+
+cat > /etc/unbound/unbound.conf.d/stealth-vpn.conf << 'UNBOUNDEOF'
+server:
+    interface: 10.8.0.1
+    interface: 127.0.0.1
+    port: 53
+    do-ip6: no
+    access-control: 10.8.0.0/16 allow
+    access-control: 127.0.0.0/8 allow
+    access-control: 0.0.0.0/0 refuse
+    hide-identity: yes
+    hide-version: yes
+    qname-minimisation: yes
+    qname-minimisation-strict: yes
+    prefetch: yes
+    cache-min-ttl: 60
+    cache-max-ttl: 3600
+    private-address: 10.0.0.0/8
+    private-address: 172.16.0.0/12
+    private-address: 192.168.0.0/16
+    private-address: 169.254.0.0/16
+
+forward-zone:
+    name: "."
+    forward-tls-upstream: yes
+    forward-addr: 1.1.1.1@853
+    forward-addr: 1.1.1.2@853
+    forward-addr: 8.8.8.8@853
+UNBOUNDEOF
+
+systemctl enable unbound
+systemctl restart unbound
+log "unbound listening on 10.8.0.1:53 (DoT upstream)"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 9: Install Xray-core (pinned version)
@@ -345,7 +406,7 @@ cat > /usr/local/bin/stealth-health.sh << 'HEOF'
 #!/bin/bash
 WG_STATUS=$(wg show wg0 2>/dev/null && echo "ok" || echo "down")
 XRAY_STATUS=$(systemctl is-active xray 2>/dev/null || echo "unknown")
-TG_SERVICE=$(systemctl is-active tc-shaping 2>/dev/null || echo "unknown")
+TC_SERVICE=$(systemctl is-active tc-shaping 2>/dev/null || echo "unknown")
 CPU=$(top -bn1 | grep "CPU(s)" | awk '{print $2+$4}')
 MEM_FREE=$(free -m | awk 'NR==2{print $4}')
 LOAD=$(uptime | awk -F'load average:' '{print $2}' | tr -d ' ')

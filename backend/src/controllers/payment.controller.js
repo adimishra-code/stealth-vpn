@@ -8,7 +8,7 @@ const provisioningService = require('../services/provisioning.service');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
 
 exports.createOrder = asyncHandler(async (req, res) => {
-  const { plan, serverNode, deviceName, mode } = req.body;
+  const { plan } = req.body;
   const order = await paymentService.createRazorpayOrder(plan);
 
   await Invoice.create({
@@ -32,7 +32,7 @@ exports.createOrder = asyncHandler(async (req, res) => {
 });
 
 exports.verifyPayment = asyncHandler(async (req, res) => {
-  const { paymentId, orderId, signature, plan, serverNode, deviceName, mode } = req.body;
+  const { paymentId, orderId, signature, serverNode, deviceName, mode } = req.body;
 
   const valid = paymentService.verifyRazorpaySignature({ orderId, paymentId, signature });
   if (!valid) {

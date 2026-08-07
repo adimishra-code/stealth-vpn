@@ -1,5 +1,4 @@
 const ServerNode = require('../models/ServerNode');
-const Device = require('../models/Device');
 const { sshConnect } = require('../services/vpn.service');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
 const logger = require('../config/logger');
@@ -27,8 +26,6 @@ exports.serverHealth = asyncHandler(async (req, res) => {
     xrayOk = xrayOut.trim() === 'active';
   } catch (err) {
     logger.warn('Health check SSH failed', { node: node.name, error: err.message });
-  } finally {
-    ssh?.dispose();
   }
 
   res.json({

@@ -1,10 +1,10 @@
-const User = require('../models/User');
 const Device = require('../models/Device');
 const ServerNode = require('../models/ServerNode');
 
 const vpn = require('./vpn.service');
 const xray = require('./xray.service');
-const { encryptPrivateKey, randomUUID } = require('../utils/crypto');
+const env = require('../config/env');
+const { randomUUID, encryptPrivateKey, decryptPrivateKey } = require('../utils/crypto');
 const { allocateIP } = require('../utils/ipAllocator');
 const { generateQRBase64 } = require('../utils/qrcode');
 const logger = require('../config/logger');
@@ -60,24 +60,54 @@ async function resolveServerNode(serverNodeName) {
   return candidates[0].name;
 }
 
-async function provisionDevice({ user, plan, serverNodeName, deviceName, mode }) {
+// Per-node Reality credentials for the VLESS URI, sourced from env
+// (NODE_MUMBAI_*/NODE_FRANKFURT_* — the same values provision-node.sh prints).
+function nodeRealityKeys(serverNodeName) {
+  const prefix = `NODE_${serverNodeName.toUpperCase()}`;
+  return {
+    realityPublicKey: env[`${prefix}_REALITY_PUBLIC_KEY`] || null,
+    realityShortId: env[`${prefix}_REALITY_SHORT_ID`] || null,
+  };
+}
+
+// ── Per-user provisioning lock ───────────────────────────────────────────────
+// Two concurrent payments for the same account can both pass enforceDeviceLimit
+// before either creates a row (TOCTOU), handing out more devices than the plan
+// allows. Single-instance PM2 deployment means an in-process mutex is enough:
+// serialize provisioning per user; the second caller re-checks the limit only
+// after the first finished. Exported for tests.
+const userLocks = new Map(); // userId -> Promise
+
+function withUserLock(userId, fn) {
+  const key = String(userId);
+  const prev = userLocks.get(key) || Promise.resolve();
+  const run = prev.catch(() => {}).then(fn);
+  const settled = run.finally(() => {
+    if (userLocks.get(key) === settled) userLocks.delete(key);
+  });
+  userLocks.set(key, settled);
+  return settled;
+}
+
+async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName, mode }) {
   await enforceDeviceLimit(user._id, plan);
 
   const resolvedNodeName = await resolveServerNode(serverNodeName);
 
   const { privateKey, publicKey, encryptedPrivateKey, serverNode } = await vpn.createDeviceOnNode({
     serverNodeName: resolvedNodeName,
-    plan,
   });
   const { assignedIP } = await allocateIP(resolvedNodeName);
   const uuid = randomUUID();
 
   let peerProvisioned = false;
   let xrayAdded = false;
+  let tcHandle = null;
   let device;
   try {
-    await vpn.provisionPeer({ serverNode, publicKey, assignedIP, plan });
+    const provisioned = await vpn.provisionPeer({ serverNode, publicKey, assignedIP, plan });
     peerProvisioned = true;
+    tcHandle = provisioned.tcHandle || null;
     await xray.addXrayUser({ serverNode, uuid, flow: xray.FLOW_VISION });
     xrayAdded = true;
 
@@ -89,10 +119,10 @@ async function provisionDevice({ user, plan, serverNodeName, deviceName, mode })
       assignedIP,
       serverNode: resolvedNodeName,
       mode,
-      xrayUUID: uuid,
+      encryptedXrayUUID: encryptPrivateKey(uuid),
       plan,
       quotaMB: PLAN_QUOTAS[plan] ?? null,
-      tcHandle: null,
+      tcHandle,
       isActive: true,
     });
   } catch (err) {
@@ -110,7 +140,7 @@ async function provisionDevice({ user, plan, serverNodeName, deviceName, mode })
     }
     if (peerProvisioned) {
       try {
-        await vpn.revokePeer({ serverNode, publicKey, tcHandle: null });
+        await vpn.revokePeer({ serverNode, publicKey, tcHandle });
       } catch (cleanupErr) {
         logger.error('Rollback: failed to remove WireGuard peer', {
           assignedIP,
@@ -150,10 +180,16 @@ async function provisionDevice({ user, plan, serverNodeName, deviceName, mode })
     privateKey,
     assignedIP,
     serverNode,
-    mode,
   });
 
   const qrDataUrl = await generateQRBase64(configString);
+
+  const vlessUri = xray.buildVlessUri({
+    serverNode,
+    uuid,
+    deviceName,
+    nodeKeys: nodeRealityKeys(resolvedNodeName),
+  });
 
   return {
     device: {
@@ -166,16 +202,23 @@ async function provisionDevice({ user, plan, serverNodeName, deviceName, mode })
     },
     config: configString,
     qrDataUrl,
+    vlessUri,
     expiresAt: newExpiry,
   };
 }
 
-async function revokeDevice(device) {
+// status: optional terminal marker ('expired' | 'revoked') for admin flows.
+function provisionDevice(args) {
+  return withUserLock(args.user._id, () => provisionDeviceUnlocked(args));
+}
+
+async function revokeDevice(device, { status } = {}) {
   const ServerNode = require('../models/ServerNode');
   const node = await ServerNode.findOne({ name: device.serverNode });
   if (!node) {
     logger.warn('Cannot revoke — server node missing', { serverNode: device.serverNode });
     device.isActive = false;
+    if (status) device.status = status;
     await device.save();
     return;
   }
@@ -183,8 +226,8 @@ async function revokeDevice(device) {
   // Deliberately not caught: if the peer is still live on the node, the device
   // must stay active so a retry happens. Marking it inactive here would report
   // revoked while the user keeps working VPN access.
-  if (device.xrayUUID) {
-    await xray.removeXrayUser({ serverNode: node, uuid: device.xrayUUID });
+  if (device.encryptedXrayUUID) {
+    await xray.removeXrayUser({ serverNode: node, uuid: decryptPrivateKey(device.encryptedXrayUUID) });
   }
   await vpn.revokePeer({
     serverNode: node,
@@ -193,14 +236,55 @@ async function revokeDevice(device) {
   });
 
   device.isActive = false;
+  if (status) device.status = status;
   await device.save();
-  logger.info('Device revoked', { deviceId: device._id.toString() });
+  logger.info('Device revoked', { deviceId: device._id.toString(), status: status || 'active' });
+}
+
+// Re-adds a previously revoked/expired device to its node and reactivates it.
+// Used by the admin extend flow and a re-buy after expiry. The peer's key and
+// IP are unchanged, so wg set is idempotent and no new IP is consumed.
+async function reactivateDevice(device, { plan } = {}) {
+  const ServerNode = require('../models/ServerNode');
+  const node = await ServerNode.findOne({ name: device.serverNode });
+  if (!node) {
+    throw new ApiError(404, `Server node "${device.serverNode}" not found`);
+  }
+
+  const effectivePlan = plan || device.plan || 'basic';
+  const provisioned = await vpn.provisionPeer({
+    serverNode: node,
+    publicKey: device.wgPublicKey,
+    assignedIP: device.assignedIP,
+    plan: effectivePlan,
+  });
+
+  if (device.encryptedXrayUUID) {
+    await xray.addXrayUser({ serverNode: node, uuid: decryptPrivateKey(device.encryptedXrayUUID) });
+  }
+
+  device.tcHandle = provisioned.tcHandle || device.tcHandle;
+  device.quotaMB = PLAN_QUOTAS[effectivePlan] ?? null;
+  device.plan = effectivePlan;
+  device.quotaExceeded = false;
+  device.isActive = true;
+  device.status = 'active';
+  await device.save();
+  logger.info('Device reactivated', {
+    deviceId: device._id.toString(),
+    plan: effectivePlan,
+    assignedIP: device.assignedIP,
+  });
+  return device;
 }
 
 module.exports = {
   provisionDevice,
+  withUserLock,
   revokeDevice,
+  reactivateDevice,
   resolveServerNode,
+  nodeRealityKeys,
   PLAN_LIMITS,
   PLAN_QUOTAS,
   enforceDeviceLimit,

@@ -3,16 +3,17 @@
 A stealth VPN service built around WireGuard and Xray/REALITY, designed to stay
 usable on networks that actively fingerprint and block VPN traffic.
 
-> **Status: work in progress.** The backend API is feature-complete and the
-> React dashboard is functional. VPN nodes are provisioned by hand via the
-> scripts in `scripts/`.
+> **Status: production-ready.** The backend API is feature-complete, the React
+> dashboard is functional, and the deployment path (nginx + TLS, PM2, cron
+> resilience) is documented in `docs/DEPLOYMENT.md`. VPN nodes are provisioned
+> via `deploy/setup.sh` and the scripts in `scripts/`.
 
 ## What's implemented
 
 - **Auth** — registration with email verification, login, JWT access tokens with
   rotating refresh tokens (stored hashed, reuse revokes every session), password
   reset, per-route rate limiting.
-- **Data models** — `User`, `Device`, `ServerNode`, `Invoice` (Mongoose).
+- **Data models** — `User`, `Device`, `ServerNode`, `Invoice`, `BandwidthSnapshot` (Mongoose).
 - **Devices** — add/revoke, WireGuard config and QR download, per-device stealth
   mode toggle, bandwidth usage.
 - **Payments** — Razorpay for INR, Stripe international. Signature-verified,
@@ -21,13 +22,44 @@ usable on networks that actively fingerprint and block VPN traffic.
 - **Provisioning** — WireGuard peer/key management, Xray REALITY config generation,
   atomic IP allocation, SSH-driven node operations with rollback on failure.
 - **Cron jobs** — plan expiry with renewal warnings (daily), bandwidth sync
-  (every 5 min), node health checks (every 2 min).
+  (every 5 min), bandwidth snapshots (daily at UTC midnight), node health checks
+  (every 2 min). Every cron reports failures through the alert service.
+- **Alerting** — email + webhook + Sentry alerting on 5xx errors, cron failures
+  and startup; throttled per hour (see `docs/ALERTING.md`).
+- **Backups** — scripts and a restore/verify workflow in `docs/BACKUP_RESTORE.md`.
 - **Frontend** — dashboard, billing, servers, settings and admin screens, with
   transparent access-token refresh on 401.
 
+## Tests
+
+The backend suite runs against an in-memory MongoDB (mongodb-memory-server) and
+covers auth, device/bandwidth, payments, IP allocation, crypto and the alert
+service:
+
+```bash
+cd backend
+npm test        # 27 tests / 6 suites
+npm run lint    # ESLint (flat config, --max-warnings 0)
+```
+
+The frontend is lint-checked with ESLint (flat config, `--max-warnings 0`):
+
+```bash
+cd frontend
+npm run lint
+```
+
+## Deployment
+
+Production deployment (VPN nodes + control-plane host, nginx + TLS via certbot,
+PM2 with a 10-second graceful-shutdown budget, cron/SSH failure hardening) is
+documented step by step in:
+
+- `docs/DEPLOYMENT.md` — full deployment guide
+- `docs/RUNBOOK.md` — day-to-day operations, billing incidents, node recovery
+
 ## Not yet built
 
-- Automated test suite
 - Refunds and plan downgrades
 
 ## Stack
@@ -50,6 +82,7 @@ The API listens on `PORT` (default `5000`). `GET /health` is a liveness check.
 ```bash
 cd frontend
 npm install
+cp .env.example .env   # VITE_RAZORPAY_KEY_ID (Razorpay test key is fine for local dev)
 npm run dev            # proxies /api to localhost:5000
 ```
 
@@ -72,6 +105,7 @@ npm run dev            # proxies /api to localhost:5000
 | GET    | `/api/devices/:id/qr`        | config as a QR code      |
 | PATCH  | `/api/devices/:id/mode`      | toggle stealth mode      |
 | GET    | `/api/devices/:id/bandwidth` |                          |
+| GET    | `/api/bandwidth/daily`       | 30/90-day snapshots      |
 | GET    | `/api/servers`               | auth required            |
 | GET    | `/api/servers/:name/health`  |                          |
 | POST   | `/api/payment/create-order`  | Razorpay, auth required  |
@@ -121,6 +155,8 @@ docs/                  setup, xray config, anti-detection notes, legal
 - [Server setup](docs/SERVER_SETUP.md)
 - [Xray configuration](docs/XRAY_CONFIG.md)
 - [Anti-detection notes](docs/ANTI_DETECTION.md)
+- [Backup & restore](docs/BACKUP_RESTORE.md)
+- [Alerting](docs/ALERTING.md)
 - [Legal](docs/LEGAL.md)
 
 ## Legal

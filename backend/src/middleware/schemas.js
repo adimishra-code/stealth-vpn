@@ -9,6 +9,14 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email('Invalid email'),
   password: z.string().min(1, 'Password required'),
+  // ADMIN-01: 6-digit TOTP code, only required when the (admin) account has
+  // 2FA enabled.
+  totpCode: z.string().length(6, 'Two-factor code must be 6 digits').optional(),
+});
+
+// ADMIN-01: enrollment round-trip / disable require a valid 6-digit code.
+const totpSchema = z.object({
+  totpCode: z.string().length(6, 'Two-factor code must be 6 digits'),
 });
 
 const verifyEmailSchema = z.object({
@@ -75,9 +83,33 @@ const adminUpdateUserSchema = z.object({
   banReason: z.string().max(500).optional(),
 });
 
+const adminBanUserSchema = z.object({
+  banReason: z.string().max(500).default('Banned by admin'),
+});
+
+const adminExtendDeviceSchema = z.object({
+  days: z.coerce.number().int().min(1).max(3650),
+});
+
+// PRIV-07/08: admin list filters travel in the POST BODY, never the query
+// string — search terms in ?search= would land in nginx/morgan logs.
+const adminListUsersSchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  search: z.string().trim().max(200).optional(),
+  plan: z.enum(['free', 'basic', 'pro', 'team']).optional(),
+});
+
+const adminListDevicesSchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  search: z.string().trim().max(200).optional(),
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
+  totpSchema,
   verifyEmailSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
@@ -88,4 +120,8 @@ module.exports = {
   stripeSessionSchema,
   stripeConfirmSchema,
   adminUpdateUserSchema,
+  adminBanUserSchema,
+  adminExtendDeviceSchema,
+  adminListUsersSchema,
+  adminListDevicesSchema,
 };

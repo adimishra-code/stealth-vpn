@@ -186,7 +186,9 @@ After provisioning, verify the following on each node:
 [Interface]
 PrivateKey = <client_private_key>
 Address = 10.8.0.2/32
-DNS = 1.1.1.1
+# Tunnel-local resolver (unbound on the node, provision-node.sh Step 8b) —
+# never the ISP's resolver.
+DNS = 10.8.0.1
 
 [Peer]
 PublicKey = <server_public_key>

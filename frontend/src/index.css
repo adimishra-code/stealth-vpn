@@ -2,29 +2,382 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Design tokens (mirror of tailwind.config.js — readable from JS) ──────── */
+:root {
+  --bg: #0a0a0b;
+  --surface: #151517;
+  --surface-raised: #1d1d20;
+  --border: #28282d;
+  --border-strong: #38383f;
+  --text-primary: #f4f4f5;
+  --text-muted: #8f8f98;
+  --text-faint: #5d5d66;
+  --accent: #2dd4bf;
+  --accent-glow: rgba(45, 212, 191, 0.25);
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --danger: #fb7185;
+  /* Shadow tokens — mirror of tailwind.config.js boxShadow, readable from CSS */
+  --shadow-card: inset 0 1px 0 0 rgba(255, 255, 255, 0.035), 0 1px 2px 0 rgba(0, 0, 0, 0.45), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
+  --shadow-card-hover: inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 2px 4px 0 rgba(0, 0, 0, 0.4), 0 18px 44px -16px rgba(0, 0, 0, 0.8);
+  --shadow-glow-accent: 0 0 0 1px rgba(45, 212, 191, 0.22), 0 6px 28px -8px rgba(45, 212, 191, 0.35);
+  --shadow-glow-accent-strong: 0 0 0 1px rgba(45, 212, 191, 0.35), 0 10px 36px -8px rgba(45, 212, 191, 0.5);
+}
+
 @layer base {
+  html {
+    color-scheme: dark;
+  }
+
   body {
-    @apply bg-stealth-950 text-slate-200 antialiased;
+    background-color: var(--bg);
+    color: var(--text-muted);
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(90rem 55rem at 50% -25%, rgba(45, 212, 191, 0.045), transparent 70%),
+      radial-gradient(50rem 35rem at 100% 100%, rgba(45, 212, 191, 0.02), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  /* Global film-grain: fixed noise layer behind all content. Negative z-index
+     keeps it between the body background and the page, so nothing needs
+     touching to sit above it. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  }
+
+  ::selection {
+    background: rgba(45, 212, 191, 0.3);
+    color: #f4f4f5;
+  }
+
+  /* Thin scrollbar, accent thumb on hover. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 8px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--accent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Respect users who disable motion — everything becomes instant. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
 @layer components {
+  /* ── Buttons ────────────────────────────────────────────────────────────
+     Buttons never float (no translateY on hover). Active = pressed via
+     shadow-inset. Loading keeps width stable (w-full where it matters). */
   .btn-primary {
-    @apply bg-stealth-500 hover:bg-stealth-400 text-white font-semibold py-2.5 px-5 rounded-lg transition-colors;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background-color: var(--accent);
+    color: var(--bg);
+    font-weight: 600;
+    padding: 0.625rem 1.25rem;
+    border-radius: 12px;
+    transition: all 150ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .btn-primary:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.22), 0 6px 28px -8px rgba(45, 212, 191, 0.35);
+  }
+  .btn-primary:active {
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
+    filter: brightness(0.95);
+    transform: scale(0.98);
+  }
+  .btn-primary:disabled {
+    opacity: 0.4;
+    pointer-events: none;
   }
   .btn-secondary {
-    @apply bg-stealth-800 hover:bg-stealth-700 text-slate-200 font-medium py-2.5 px-5 rounded-lg transition-colors;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background-color: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-weight: 500;
+    padding: 0.625rem 1.25rem;
+    border-radius: 12px;
+    transition: all 150ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .btn-secondary:hover {
+    background-color: var(--surface-raised);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+  .btn-secondary:active {
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
+    transform: scale(0.98);
+  }
+  .btn-secondary:disabled {
+    opacity: 0.4;
+    pointer-events: none;
   }
   .btn-danger {
-    @apply bg-rose-600 hover:bg-rose-500 text-white font-medium py-2 px-4 rounded-lg transition-colors;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background-color: rgba(251, 113, 133, 0.15);
+    border: 1px solid rgba(251, 113, 133, 0.3);
+    color: var(--danger);
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 12px;
+    transition: all 150ms cubic-bezier(0.2, 0, 0, 1);
   }
+  .btn-danger:hover {
+    background-color: rgba(251, 113, 133, 0.25);
+    filter: brightness(1.1);
+  }
+  .btn-danger:active {
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
+    transform: scale(0.98);
+  }
+  .btn-danger:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  /* ── Surfaces ───────────────────────────────────────────────────────────
+     Flat, material weight — no gradients. Depth comes from shadow + border. */
   .card {
-    @apply bg-stealth-900 border border-stealth-700/50 rounded-xl p-5;
+    position: relative;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.25rem;
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.035), 0 1px 2px 0 rgba(0, 0, 0, 0.45), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
   }
+  .card-hover {
+    transition: all 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .card-hover:hover {
+    border-color: var(--border-strong);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 2px 4px 0 rgba(0, 0, 0, 0.4), 0 18px 44px -16px rgba(0, 0, 0, 0.8);
+    transform: translateY(-2px);
+  }
+
+  .surface-interactive {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: all 150ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .surface-interactive:hover {
+    background-color: var(--surface-raised);
+    border-color: var(--border-strong);
+  }
+
+  /* ── Form controls ────────────────────────────────────────────────────── */
   .input {
-    @apply bg-stealth-800 border border-stealth-700 rounded-lg px-4 py-2.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-stealth-500 w-full;
+    width: 100%;
+    background-color: rgba(10, 10, 11, 0.7);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    transition: all 150ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .input::placeholder {
+    color: var(--text-faint);
+  }
+  .input:focus {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    border-color: rgba(45, 212, 191, 0.6);
+    box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.15);
+  }
+  .input-error {
+    border-color: rgba(251, 113, 133, 0.6);
+  }
+  .input-error:focus {
+    border-color: rgba(251, 113, 133, 0.6);
+    box-shadow: 0 0 0 2px rgba(251, 113, 133, 0.15);
   }
   .label {
-    @apply block text-sm font-medium text-slate-400 mb-1.5;
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-bottom: 0.375rem;
+  }
+
+  /* ── Chips / badges — tight, mono, small radius ───────────────────────── */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    border: 1px solid;
+  }
+  .chip-accent {
+    border-color: rgba(45, 212, 191, 0.3);
+    background-color: rgba(45, 212, 191, 0.1);
+    color: #5eead8;
+  }
+  .chip-muted {
+    border-color: var(--border);
+    background-color: rgba(29, 29, 32, 0.6);
+    color: var(--text-muted);
+  }
+  .chip-ok {
+    border-color: rgba(52, 211, 153, 0.3);
+    background-color: rgba(52, 211, 153, 0.1);
+    color: var(--ok);
+  }
+  .chip-warn {
+    border-color: rgba(251, 191, 36, 0.3);
+    background-color: rgba(251, 191, 36, 0.1);
+    color: var(--warn);
+  }
+  .chip-danger {
+    border-color: rgba(251, 113, 133, 0.3);
+    background-color: rgba(251, 113, 133, 0.1);
+    color: var(--danger);
+  }
+
+  /* ── Skeleton — surface colour, shimmer sweep, matches content shape ──── */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background-color: rgba(29, 29, 32, 0.7);
+    border-radius: 12px;
+  }
+  .skeleton::after {
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    animation: shimmer 1.8s ease-in-out infinite;
+    content: '';
+    background-image: linear-gradient(90deg, transparent, rgba(244, 244, 245, 0.05), transparent);
+  }
+
+  /* ── Glass — reserved for the modal overlay + one drawer, nothing else ── */
+  .glass {
+    background-color: rgba(10, 10, 11, 0.7);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: 1px solid var(--border);
+  }
+
+  /* ── Accent text gradient — one place only: never on headlines ───────── */
+  .text-accent-gradient {
+    background: linear-gradient(100deg, #5eead8, #2dd4bf 55%, #14b8a6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .glow-accent {
+    filter: drop-shadow(0 0 12px rgba(45, 212, 191, 0.35));
+  }
+
+  /* ── Scroll-triggered entrances (Reveal component drives these) ───────── */
+  .animate-on-scroll {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  .animate-on-scroll.in-view {
+    animation: fade-up 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  /* ── Page transitions — keyed container in Layout, re-runs per route ──── */
+  .page-enter {
+    animation: fade-up 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* ── Toast styling. No toast component exists yet — these classes define
+     the system so any future implementation follows the motion rules. ──── */
+  .toast {
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    border-radius: 12px;
+    border: 1px solid;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.035), 0 1px 2px 0 rgba(0, 0, 0, 0.45), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
+    background-color: var(--surface);
+    animation: slide-in-right 250ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+  .toast-success {
+    border-color: rgba(45, 212, 191, 0.3);
+    border-left-width: 2px;
+    border-left-color: var(--ok);
+    color: var(--text-primary);
+  }
+  .toast-error {
+    border-color: rgba(251, 113, 133, 0.4);
+    border-left-width: 2px;
+    border-left-color: var(--danger);
+    color: var(--text-primary);
+  }
+  .toast-warning {
+    border-color: rgba(251, 191, 36, 0.4);
+    border-left-width: 2px;
+    border-left-color: var(--warn);
+    color: var(--text-primary);
+  }
+  .toast-info {
+    border-color: var(--border-strong);
+    border-left-width: 2px;
+    border-left-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  /* ── Noise texture for the landing hero background ────────────────────── */
+  .noise::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 }

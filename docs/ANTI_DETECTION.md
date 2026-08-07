@@ -171,15 +171,27 @@ own kill-switch option instead.
 
 ### DNS Leak prevention
 
-Server forward 1.1.1.1 via DoH:
+All tunneled DNS resolves against the node's local **unbound** resolver on
+10.8.0.1:53 — the DNS handed to clients by the generated `.conf`:
+
+- Unbound forwards upstream over **DoT** (TLS on port 853) to 1.1.1.1/1.1.1.2
+  and 8.8.8.8 (`forward-tls-upstream`). The node's ISP never sees plaintext
+  DNS from clients, and no systemd-resolved / DHCP resolver is ever involved.
+- It binds the tunnel + loopback only (`access-control: 0.0.0.0/0 refuse`) —
+  10.8.0.1:53 is not an open public resolver.
+- `qname-minimisation` (strict) strips metadata from upstream queries;
+  cache `min-ttl 60 / max-ttl 3600` + prefetch keep repeats fast with few
+  upstream queries.
+- Client-side, the kill switch (above) rejects anything leaving the tunnel, so
+  a dead resolver cannot silently fall back to ISP DNS.
+
+Installed automatically by `scripts/provision-node.sh` (Step 8b). Verify from
+inside the tunnel on a client:
 
 ```bash
-# On server: systemd-resolved -> cloudflare-dns.com
-...
+dig +short @10.8.0.1 example.com   # resolves via unbound
+dig @10.8.0.1 example.com +tcp      # server-side, TCP works too
 ```
-
-DNS inside wire tunnel 10.8.0.1 → server → resolv via DoH external.
-No ISP DNS, no search metadata.
 
 ### IPv6 disabled on WG
 

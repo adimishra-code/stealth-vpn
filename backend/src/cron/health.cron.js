@@ -1,73 +1,198 @@
 const cron = require('node-cron');
+const tls = require('tls');
 const ServerNode = require('../models/ServerNode');
+const env = require('../config/env');
 const { sshConnect } = require('../services/vpn.service');
 const logger = require('../config/logger');
 const { alertError } = require('../services/alert.service');
 
 const DOWN_ALERT_THRESHOLD_MS = 5 * 60 * 1000;
+const TLS_HANDSHAKE_TIMEOUT_MS = 10 * 1000;
+// Renewal reminder horizon: alert while there is still time to act.
+const TLS_RENEW_WARNING_DAYS = 14;
 
-function startHealthCheckCron() {
-  cron.schedule('*/2 * * * *', async () => {
-    let nodes;
+// Same guard as the other crons: an overlap (slow SSH round-trips vs the
+// 2-minute interval) would run two sweeps at once and double-fire alerts.
+let isRunning = false;
+
+// Writes the sweep outcome. lastOnlineAt is ONLY advanced by a successful
+// sweep — failed sweeps leave it untouched so the offline duration can be
+// measured and the >5-min alert can actually fire. lastHealthCheck records
+// that the sweep ran (diagnostics), success or failure.
+function recordStatus(node, isOnline, now) {
+  return ServerNode.findByIdAndUpdate(
+    node._id,
+    isOnline
+      ? { isOnline: true, lastOnlineAt: now, lastHealthCheck: now }
+      : { isOnline: false, lastHealthCheck: now }
+  );
+}
+
+// Time since the node last confirmed online. For nodes that have never
+// succeeded (lastOnlineAt null — e.g. freshly seeded or just-deployed), the
+// seed/creation time is the reference so a dead-on-arrival node still alerts.
+function offlineSinceMs(node) {
+  const reference = node.lastOnlineAt || node.createdAt || new Date();
+  return new Date() - new Date(reference);
+}
+
+// INFRA-09: verify the REALITY fronting domain actually serves a valid TLS
+// cert for its own SNI. Every node's stealth depends on this domain — a dead
+// SNI or expired cert doesn't just look wrong, some networks start blocking
+// the domain entirely. Runs weekly (Sundays 03:00).
+function checkFrontingTls(host, port = 443, timeoutMs = TLS_HANDSHAKE_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const socket = tls.connect({
+      host,
+      port,
+      servername: host,
+      // Manual inspection below: rejectUnauthorized would hide an expired
+      // cert behind a generic handshake error, and we want the remaining
+      // validity reported either way.
+      rejectUnauthorized: false,
+    });
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      reject(err);
+    };
+    const timer = setTimeout(() => fail(new Error('TLS handshake timed out')), timeoutMs);
+    socket.once('error', fail);
+    socket.once('secureConnect', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const peerCert = socket.getPeerCertificate();
+      const authorized = socket.authorized; // chain + hostname check result
+      socket.destroy();
+      if (!peerCert || !peerCert.valid_to) {
+        resolve({ ok: false, authorized: false, expired: false, daysLeft: 0, reason: 'no certificate presented' });
+        return;
+      }
+      const validTo = new Date(peerCert.valid_to);
+      const daysLeft = Math.floor((validTo - Date.now()) / 86400000);
+      const expired = validTo <= Date.now();
+      resolve({ ok: authorized && !expired, authorized, expired, daysLeft });
+    });
+  });
+}
+
+// Exported for tests; the cron wraps it with alerts.
+function startWeeklyTlsCheckCron() {
+  cron.schedule('0 3 * * 0', async () => {
+    const host = env.XRAY_SNI_DEST;
+    let result;
     try {
-      nodes = await ServerNode.find();
+      result = await checkFrontingTls(host);
     } catch (err) {
-      // node-cron does not handle a rejected callback — without this the process exits.
-      logger.error('Health cron: failed to load nodes', { error: err.message });
+      logger.error('Fronting domain TLS/SNI check failed', { host, error: err.message });
+      alertError({
+        source: 'cron.tls',
+        title: `Fronting domain TLS check failed: ${host}`,
+        message: `${host}:${443} — ${err.message}`,
+        details: { host, error: err.message },
+        err,
+      });
       return;
     }
 
-    for (const node of nodes) {
-      let ssh = null;
+    if (result.ok) {
+      logger.info('Weekly TLS/SNI check passed', { host, daysLeft: result.daysLeft });
+      return;
+    }
+    if (result.expired) {
+      logger.error('Fronting domain TLS cert expired', { host, validTo: result.validTo });
+      alertError({
+        source: 'cron.tls',
+        title: `Fronting domain TLS cert expired: ${host}`,
+        message: `${host} presents an expired certificate — REALITY stealth and every node are affected.`,
+        details: { host, validTo: result.validTo },
+      });
+      return;
+    }
+    if (result.daysLeft < TLS_RENEW_WARNING_DAYS) {
+      logger.warn('Fronting domain TLS cert expiring soon', { host, daysLeft: result.daysLeft });
+      alertError({
+        source: 'cron.tls',
+        title: `Fronting domain TLS cert expiring in ${result.daysLeft}d: ${host}`,
+        message: `${host} cert renews in ${result.daysLeft} day(s) — run the certbot renewal before it expires.`,
+        details: { host, daysLeft: result.daysLeft },
+      });
+      return;
+    }
+    logger.error('Fronting domain TLS/SNI check failed', { host, authorized: result.authorized, reason: result.reason });
+    alertError({
+      source: 'cron.tls',
+      title: `Fronting domain TLS/SNI check failed: ${host}`,
+      message: `${host} did not present a valid certificate for its own SNI.`,
+      details: { host, authorized: result.authorized, daysLeft: result.daysLeft, reason: result.reason },
+    });
+  });
+}
+
+function startHealthCheckCron() {
+  cron.schedule('*/2 * * * *', async () => {
+    if (isRunning) return;
+    isRunning = true;
+    try {
+      let nodes;
       try {
-        ssh = await sshConnect(node);
-        const { stdout: xrayStatus } = await ssh.execCommand('systemctl is-active xray');
-        const { stdout: wgStatus } = await ssh.execCommand('wg show wg0');
+        nodes = await ServerNode.find();
+      } catch (err) {
+        // node-cron does not handle a rejected callback — without this the process exits.
+        logger.error('Health cron: failed to load nodes', { error: err.message });
+        return;
+      }
 
-        const isOnline = xrayStatus.trim() === 'active' && wgStatus.includes('wg0');
-        await ServerNode.findByIdAndUpdate(node._id, {
-          isOnline: isOnline,
-          lastHealthCheck: new Date(),
-        });
+      for (const node of nodes) {
+        const now = new Date();
+        try {
+          const ssh = await sshConnect(node);
+          const { stdout: xrayStatus } = await ssh.execCommand('systemctl is-active xray');
+          const { stdout: wgStatus } = await ssh.execCommand('sudo -n wg show wg0');
 
-        if (!isOnline && node.isOnline) {
-          logger.warn('Node went offline', { node: node.name, ip: node.ip });
-          if (new Date() - new Date(node.lastHealthCheck) > DOWN_ALERT_THRESHOLD_MS) {
-            logger.error('Node has been offline >5min', { node: node.name });
+          const isOnline = xrayStatus.trim() === 'active' && wgStatus.includes('wg0');
+          await recordStatus(node, isOnline, now);
+
+          if (!isOnline) {
+            if (node.isOnline) {
+              logger.warn('Node went offline', { node: node.name, ip: node.ip });
+            }
+            if (offlineSinceMs(node) > DOWN_ALERT_THRESHOLD_MS) {
+              logger.error('Node offline >5min', { node: node.name });
+              alertError({
+                source: 'cron.health',
+                title: `VPN node offline >5min: ${node.name}`,
+                message: `${node.name} (${node.ip}) — xray/wg0 down since ${node.lastOnlineAt || 'never online'}`,
+                details: { node: node.name, ip: node.ip, lastOnlineAt: node.lastOnlineAt },
+              });
+            }
+          }
+        } catch (err) {
+          try {
+            await recordStatus(node, false, now);
+          } catch (dbErr) {
+            logger.error('Health cron: status write failed', { node: node.name, error: dbErr.message });
+          }
+          if (offlineSinceMs(node) > DOWN_ALERT_THRESHOLD_MS) {
+            logger.error('Node health check failing >5min', { node: node.name, error: err.message });
             alertError({
               source: 'cron.health',
-              title: `VPN node offline >5min: ${node.name}`,
-              message: `${node.name} (${node.ip}) unreachable — check xray/wg0 status`,
-              details: { node: node.name, ip: node.ip },
+              title: `VPN node health check failing >5min: ${node.name}`,
+              message: `${node.name} (${node.ip}) — ${err.message}`,
+              details: { node: node.name, ip: node.ip, error: err.message },
+              err,
             });
           }
         }
-      } catch (err) {
-        try {
-          await ServerNode.findByIdAndUpdate(node._id, {
-            isOnline: false,
-            lastHealthCheck: new Date(),
-          });
-        } catch (dbErr) {
-          logger.error('Health cron: status write failed', { node: node.name, error: dbErr.message });
-        }
-        if (new Date() - new Date(node.lastHealthCheck) > DOWN_ALERT_THRESHOLD_MS) {
-          logger.error('Node health check failed >5min', { node: node.name, error: err.message });
-          alertError({
-            source: 'cron.health',
-            title: `VPN node health check failing >5min: ${node.name}`,
-            message: `${node.name} (${node.ip}) — ${err.message}`,
-            details: { node: node.name, ip: node.ip, error: err.message },
-            err,
-          });
-        }
-      } finally {
-        // Runs every 2 minutes against every node; disposing only on the happy
-        // path leaks a socket per failure and eventually exhausts descriptors.
-        ssh?.dispose();
       }
+    } finally {
+      isRunning = false;
     }
   });
 }
 
-module.exports = { startHealthCheckCron };
+module.exports = { startHealthCheckCron, startWeeklyTlsCheckCron, checkFrontingTls };

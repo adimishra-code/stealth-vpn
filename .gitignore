@@ -8,6 +8,8 @@ id_ed25519*
 id_rsa*
 wg-keys/
 *.conf
+# Deployment template — placeholders only, operators copy it onto the host.
+!deploy/nginx.conf
 
 # Dependencies
 node_modules/
@@ -38,3 +40,10 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Local dev scratch files (screenshots, throwaway scripts)
+*.dbg.cjs
+s[0-9].cjs
+shot-tmp.cjs
+cur-*.png
+new-*.png

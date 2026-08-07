@@ -3,24 +3,35 @@ const router = express.Router();
 
 const { validate } = require('../middleware/validate.middleware');
 const { authMiddleware } = require('../middleware/auth.middleware');
-const { authLimiter, registerLimiter } = require('../middleware/rateLimit.middleware');
+const { authLimiter, registerLimiter, forgotPasswordLimiter } = require('../middleware/rateLimit.middleware');
 const {
   registerSchema,
   loginSchema,
+  totpSchema,
   verifyEmailSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
 } = require('../middleware/schemas');
 
 const authController = require('../controllers/auth.controller');
+const accountDeletionController = require('../controllers/accountDeletion.controller');
 
 router.post('/register', registerLimiter, validate(registerSchema), authController.register);
 router.post('/verify', validate(verifyEmailSchema), authController.verifyEmail);
 router.post('/login', authLimiter, validate(loginSchema), authController.login);
 router.post('/refresh', authController.refresh);
 router.post('/logout', authController.logout);
-router.post('/forgot-password', validate(forgotPasswordSchema), authController.forgotPassword);
+router.delete('/sessions', authMiddleware, authController.logoutAll);
+// ADMIN-01: TOTP enrollment (setup regenerates the secret; verify flips the
+// flag on after a code round-trip; disable requires a valid code).
+router.post('/totp/setup', authMiddleware, authController.totpSetup);
+router.post('/totp/verify', authMiddleware, validate(totpSchema), authController.totpVerify);
+router.post('/totp/disable', authMiddleware, validate(totpSchema), authController.totpDisable);
+router.post('/forgot-password', forgotPasswordLimiter, validate(forgotPasswordSchema), authController.forgotPassword);
 router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
 router.get('/me', authMiddleware, authController.me);
+// Right to be forgotten: revokes everything now, hard-deletes after the
+// grace period via the purge cron.
+router.delete('/me', authMiddleware, accountDeletionController.requestAccountDeletion);
 
 module.exports = router;

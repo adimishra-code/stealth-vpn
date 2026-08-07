@@ -43,7 +43,7 @@ async function syncBandwidthForNode(node) {
       const device = await Device.findOne({ wgPublicKey: pubkey, isActive: true });
       if (!device) continue;
 
-      const { deltaMB, deltaRx, deltaTx } = computeBandwidthDelta({
+      const { deltaMB } = computeBandwidthDelta({
         rx,
         tx,
         lastRx: device.lastWgRxBytes,
@@ -90,4 +90,39 @@ async function syncAllNodes() {
   return results.map((r) => (r.status === 'fulfilled' ? r.value : { error: r.reason.message }));
 }
 
-module.exports = { syncBandwidthForNode, syncAllNodes, computeBandwidthDelta };
+// Quota disclosure (PRIV-19): the monthly window starts on the 1st of each
+// month, 00:00 UTC. Exposed to clients so "X GB of 500 GB" is honest.
+function nextQuotaResetAt(now = new Date()) {
+  const next = new Date(now);
+  next.setUTCDate(1);
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  next.setUTCHours(0, 0, 0, 0);
+  return next;
+}
+
+// PRIV-19: quota is advertised as monthly, so at the month boundary every
+// metered device starts from zero again. Only devices with a quotaMB are
+// touched; baselines reset to null so the next delta pass starts fresh
+// (cumulative wg counters make this double-count-proof).
+async function resetMonthlyQuotas(now = new Date()) {
+  const res = await Device.updateMany(
+    { quotaMB: { $ne: null } },
+    {
+      $set: {
+        bandwidthUsedMB: 0,
+        quotaExceeded: false,
+        lastWgRxBytes: null,
+        lastWgTxBytes: null,
+      },
+    }
+  );
+  if (res.modifiedCount > 0) {
+    logger.info('Monthly quota window reset', {
+      devices: res.modifiedCount,
+      windowStart: now.toISOString(),
+    });
+  }
+  return res.modifiedCount;
+}
+
+module.exports = { syncBandwidthForNode, syncAllNodes, computeBandwidthDelta, nextQuotaResetAt, resetMonthlyQuotas };

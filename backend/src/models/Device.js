@@ -33,7 +33,12 @@ const DeviceSchema = new mongoose.Schema({
     enum: ['stealth', 'gaming'],
     default: 'stealth',
   },
-  xrayUUID: {
+  // PRIV-05: the Reality UUID is a live credential (with the node's public
+  // key + shortId, anyone holding it can build a working VLESS link), so it
+  // is stored AES-256-GCM encrypted (encryptPrivateKey envelope, key =
+  // WG_ENCRYPTION_KEY) — never in plaintext. Plaintext field xrayUUID was
+  // migrated by scripts/migrate-xray-uuid.js.
+  encryptedXrayUUID: {
     type: String,
   },
   plan: {
@@ -43,6 +48,14 @@ const DeviceSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  // Terminal lifecycle marker set by admin flows: 'expired' (plan ended) or
+  // 'revoked' (permanent ban). The operative flag remains isActive — status
+  // only records why a device was deactivated.
+  status: {
+    type: String,
+    enum: ['active', 'expired', 'revoked'],
+    default: 'active',
   },
   bandwidthUsedMB: {
     type: Number,
@@ -74,6 +87,11 @@ const DeviceSchema = new mongoose.Schema({
   toJSON: {
     transform(doc, ret) {
       delete ret.wgPrivateKey;
+      // The Reality UUID is a usable credential (with the node's public key +
+      // shortId, anyone holding it can build a working VLESS link). It must
+      // never leave the server — serialization is the last line of defense
+      // after the per-route .select() exclusions.
+      delete ret.encryptedXrayUUID;
       delete ret.__v;
       return ret;
     },
@@ -84,5 +102,7 @@ DeviceSchema.index({ userId: 1 });
 DeviceSchema.index({ wgPublicKey: 1 }, { unique: true });
 DeviceSchema.index({ serverNode: 1, assignedIP: 1 }, { unique: true });
 DeviceSchema.index({ serverNode: 1, isActive: 1 });
+// Device-limit enforcement and per-user listing hot path.
+DeviceSchema.index({ userId: 1, isActive: 1 });
 
 module.exports = mongoose.model('Device', DeviceSchema);

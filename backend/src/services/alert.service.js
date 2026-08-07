@@ -174,6 +174,8 @@ function registerProcessHandlers() {
       err,
     })
       .catch(() => {})
+      // No point living after an uncaught exception; PM2 restarts the worker.
+      // eslint-disable-next-line no-process-exit -- uncaughtException is fatal
       .finally(() => process.exit(1));
   });
 }

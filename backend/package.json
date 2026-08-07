@@ -8,8 +8,10 @@
     "dev": "nodemon server.js",
     "seed": "node ../scripts/seed-nodes.js",
     "test-provision": "node scripts/test-provision.js",
-    "lint": "eslint src/",
-    "test": "jest --forceExit --detectOpenHandles"
+    "lint": "eslint src --max-warnings 0",
+    "lint:fix": "eslint src --fix",
+    "test": "jest --forceExit --detectOpenHandles",
+    "test:integration": "jest --forceExit --detectOpenHandles tests/integration"
   },
   "jest": {
     "testEnvironment": "node",
@@ -26,6 +28,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
+    "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "ipaddr.js": "^2.2.0",
@@ -35,7 +38,7 @@
     "node-cron": "^4.6.0",
     "node-ssh": "^13.2.0",
     "nodemailer": "^9.0.4",
-    "nodemon": "^3.1.4",
+    "otplib": "^11.0.1",
     "qrcode": "^1.5.4",
     "razorpay": "^2.9.4",
     "stripe": "^16.8.0",
@@ -43,8 +46,11 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
     "jest": "^29.7.0",
     "mongodb-memory-server": "^10.1.2",
+    "nodemon": "^3.1.4",
     "supertest": "^7.0.0"
   },
   "engines": {

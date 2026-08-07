@@ -1,18 +1,25 @@
 import { useState } from 'react'
+import PropTypes from 'prop-types'
 import { QRCodeSVG } from 'qrcode.react'
+import { Laptop, Smartphone, Download, QrCode, Trash2, X, Activity } from 'lucide-react'
 import { useGetQrQuery, useDownloadConfigQuery, useRevokeDeviceMutation } from '../features/devices/devicesApi'
 import ModeToggle from './ModeToggle'
 
-const flagEmoji = {
-  mumbai: '🇮🇳',
-  frankfurt: '🇩🇪',
+const NODE_LABEL = {
+  mumbai: { flag: '🇮🇳', city: 'Mumbai' },
+  frankfurt: { flag: '🇩🇪', city: 'Frankfurt' },
+}
+
+// Phones get a phone glyph; everything else a laptop. Cosmetic only.
+function isPhoneName(name = '') {
+  return /phone|ios|android|pixel|galaxy|iphone/i.test(name)
 }
 
 export default function DeviceCard({ device }) {
   const [confirmRevoke, setConfirmRevoke] = useState(false)
   const [showQr, setShowQr] = useState(false)
   const { data: qrData, refetch: fetchQr, isFetching: qrLoading } = useGetQrQuery(device.id, { skip: !showQr })
-  const { data: configText, refetch: fetchConfig } = useDownloadConfigQuery(device.id, { skip: true })
+  const { refetch: fetchConfig } = useDownloadConfigQuery(device.id, { skip: true })
   const [revoke, { isLoading: revoking }] = useRevokeDeviceMutation()
 
   const downloadConfig = async () => {
@@ -37,78 +44,138 @@ export default function DeviceCard({ device }) {
     await revoke(device.id)
   }
 
+  const isPhone = isPhoneName(device.deviceName)
+  const node = NODE_LABEL[device.serverNode] || { flag: '🌐', city: device.serverNode }
+  const usedGB = (device.bandwidthUsedMB / 1024).toFixed(2)
+  const quotaGB = device.quotaMB ? (device.quotaMB / 1024).toFixed(0) : null
+  const status = device.status || (device.isActive ? 'active' : 'revoked')
+  const statusChip = status === 'active'
+    ? 'chip-ok'
+    : status === 'expired'
+      ? 'chip-warn'
+      : 'chip-danger'
+
   return (
-    <div className={`card ${device.isActive ? '' : 'opacity-60'}`}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-stealth-800 flex items-center justify-center text-xl">
-            💻
+    <div className={`card card-hover group ${device.isActive ? '' : 'opacity-55'}`}>
+      <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-5">
+        {/* Identity: status dot + device name + location/IP */}
+        <div className="flex items-center gap-3.5 min-w-0 md:flex-1">
+          <span className="relative flex h-2 w-2 shrink-0">
+            {device.isActive && (
+              <span className="absolute inline-flex h-full w-full rounded-full bg-ok animate-ping-dot" />
+            )}
+            <span className={`relative inline-flex h-2 w-2 rounded-full ${device.isActive ? 'bg-ok shadow-dot' : 'bg-faint'}`} />
+          </span>
+
+          <div className="w-10 h-10 rounded-lg bg-raised/80 border border-line flex items-center justify-center shrink-0">
+            {isPhone
+              ? <Smartphone size={18} className="text-muted" strokeWidth={1.75} />
+              : <Laptop size={18} className="text-muted" strokeWidth={1.75} />}
           </div>
-          <div>
-            <h3 className="font-semibold text-white">{device.deviceName}</h3>
-            <p className="text-xs text-slate-500">
-              {flagEmoji[device.serverNode] || '🌐'} {device.serverNode} · {device.assignedIP}
+
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <h3 className="font-semibold text-ink truncate">{device.deviceName}</h3>
+              {device.plan && <span className="chip-accent shrink-0">{device.plan.toUpperCase()}</span>}
+              <span className={`chip shrink-0 ${statusChip}`}>{status.toUpperCase()}</span>
+            </div>
+            <p className="font-mono text-xs text-faint flex items-center gap-1.5 mt-1 truncate">
+              <span>{node.flag}</span>
+              <span>{node.city}</span>
+              <span className="text-faint/60">·</span>
+              <span>{device.assignedIP}</span>
+              <span className="text-faint/60">·</span>
+              <span className="flex items-center gap-1"><Activity size={11} /> {usedGB} GB</span>
             </p>
           </div>
         </div>
-        <span
-          className={`text-xs font-bold px-2 py-1 rounded-full ${
-            device.isActive
-              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/40'
-              : 'bg-rose-500/10 text-rose-400 border border-rose-500/40'
-          }`}
-        >
-          {device.isActive ? 'ACTIVE' : 'REVOKED'}
-        </span>
+
+        {/* Mode toggle — middle column, physical switch */}
+        {device.isActive && (
+          <div className="md:w-56 md:shrink-0">
+            <ModeToggle device={device} />
+          </div>
+        )}
+
+        {/* Actions */}
+        {device.isActive && (
+          <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
+            <button onClick={downloadConfig} className="btn-secondary !py-1.5 !px-3 text-xs">
+              <Download size={13} />
+              .conf
+            </button>
+            <button
+              onClick={() => {
+                setShowQr(!showQr)
+                if (!showQr) fetchQr()
+              }}
+              className="btn-secondary !py-1.5 !px-3 text-xs"
+            >
+              {showQr ? <X size={13} /> : <QrCode size={13} />}
+              {showQr ? 'Close' : 'QR code'}
+            </button>
+            <button
+              onClick={handleRevoke}
+              disabled={revoking}
+              className={`${confirmRevoke ? 'btn-danger' : 'btn-secondary'} !py-1.5 !px-3 text-xs`}
+            >
+              <Trash2 size={13} />
+              {revoking ? 'Revoking…' : confirmRevoke ? 'Confirm?' : 'Revoke'}
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 mb-4">
-        {device.isActive && <ModeToggle device={device} />}
-        <div className="text-xs text-slate-500">
-          📊 {(device.bandwidthUsedMB / 1024).toFixed(2)} GB used
-          {device.lastSeen && <div>Last seen: {new Date(device.lastSeen).toLocaleDateString()}</div>}
+      {quotaGB && (
+        <div className="mt-4 animate-fade-in">
+          <div className="flex items-center justify-between text-xs mb-1.5">
+            <span className="text-faint">Monthly quota</span>
+            <span className="font-mono text-muted">
+              {usedGB} / {quotaGB} GB
+              {device.quotaExceeded && <span className="text-danger ml-2">exceeded — revoked</span>}
+            </span>
+          </div>
+          <div className="h-1.5 rounded-full bg-raised overflow-hidden">
+            <div
+              className={`h-full rounded-full ${device.quotaExceeded ? 'bg-danger' : 'bg-accent-400'}`}
+              style={{ width: `${Math.min(100, ((device.bandwidthUsedMB || 0) / device.quotaMB) * 100)}%` }}
+            />
+          </div>
+          <p className="text-[11px] text-faint mt-1.5">Resets on the 1st of the month (UTC)</p>
         </div>
-      </div>
+      )}
 
       {showQr && (
-        <div className="mb-4 flex flex-col items-center gap-2">
+        <div className="mt-4 flex flex-col items-center gap-2 rounded-lg bg-white p-5 animate-fade-in">
           {qrLoading ? (
-            <div className="text-xs text-slate-500">Generating QR...</div>
+            <div className="h-[180px] w-[180px] skeleton" />
           ) : qrData?.qrDataUrl ? (
             <>
               <QRCodeSVG value={qrData.qrDataUrl} size={180} />
-              <p className="text-[11px] text-slate-500">Scan with the WireGuard app</p>
+              <p className="text-[11px] text-faint">Scan with the WireGuard app</p>
             </>
           ) : null}
         </div>
       )}
-
-      {device.isActive && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={downloadConfig}
-            className="btn-secondary !py-1.5 !px-3 text-xs"
-          >
-            ⬇ .conf
-          </button>
-          <button
-            onClick={() => {
-              setShowQr(!showQr)
-              if (!showQr) fetchQr()
-            }}
-            className="btn-secondary !py-1.5 !px-3 text-xs"
-          >
-            {showQr ? '✕ Close QR' : '📱 QR'}
-          </button>
-          <button
-            onClick={handleRevoke}
-            disabled={revoking}
-            className={`${confirmRevoke ? 'btn-danger' : 'btn-secondary'} !py-1.5 !px-3 text-xs disabled:opacity-50`}
-          >
-            {revoking ? 'Revoking...' : confirmRevoke ? 'Confirm revoke?' : '🗑 Revoke'}
-          </button>
-        </div>
-      )}
     </div>
   )
+}
+
+DeviceCard.propTypes = {
+  device: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    _id: PropTypes.string,
+    deviceName: PropTypes.string.isRequired,
+    platform: PropTypes.string.isRequired,
+    serverNode: PropTypes.string,
+    isActive: PropTypes.bool.isRequired,
+    status: PropTypes.string,
+    plan: PropTypes.string,
+    mode: PropTypes.oneOf(['gaming', 'stealth']),
+    bandwidthUsedMB: PropTypes.number,
+    quotaMB: PropTypes.number,
+    quotaExceeded: PropTypes.bool,
+    assignedIP: PropTypes.string,
+    lastSeen: PropTypes.string,
+  }).isRequired,
 }

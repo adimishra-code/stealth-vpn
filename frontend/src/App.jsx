@@ -1,9 +1,10 @@
 import { Routes, Route } from 'react-router'
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import ProtectedRoute from './router/ProtectedRoute'
 import AdminRoute from './router/AdminRoute'
 import Layout from './components/Layout'
+import ToastHost from './components/ToastHost'
 import { useMeQuery } from './features/auth/authApi'
 import { selectToken, selectUser, setUser, clearCredentials } from './features/auth/authSlice'
 
@@ -13,11 +14,25 @@ import Register from './pages/Register'
 import VerifyEmail from './pages/VerifyEmail'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
+import Terms from './pages/Terms'
+import Privacy from './pages/Privacy'
 import Dashboard from './pages/Dashboard'
-import Billing from './pages/Billing'
 import Servers from './pages/Servers'
 import Settings from './pages/Settings'
-import Admin from './pages/Admin'
+import NotFound from './pages/NotFound'
+
+// Admin (75 kB — recharts alone is most of it) and Billing only load once the
+// user actually navigates to them, instead of paying for them on every visit.
+const Admin = lazy(() => import('./pages/Admin'))
+const Billing = lazy(() => import('./pages/Billing'))
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center py-24">
+      <p className="font-mono text-sm text-faint animate-pulse">loading…</p>
+    </div>
+  )
+}
 
 // A page reload leaves the token in localStorage but the user object empty.
 // Route guards read user.role, so on a cold load we must block until /me has
@@ -46,29 +61,38 @@ export default function App() {
 
   if (!ready) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-slate-400">
-        Loading…
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="font-mono text-sm text-faint">establishing tunnel…</p>
       </div>
     )
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
+    <>
+      {/* Global toast layer — mounts once, survives route changes */}
+      <ToastHost />
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
 
-      <Route element={<Layout />}>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/verify-email" element={<VerifyEmail />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route element={<Layout />}>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
-        <Route path="/servers" element={<ProtectedRoute><Servers /></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-        <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-      </Route>
-    </Routes>
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/billing" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Billing /></Suspense></ProtectedRoute>} />
+          <Route path="/servers" element={<ProtectedRoute><Servers /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/admin" element={<AdminRoute><Suspense fallback={<PageLoader />}><Admin /></Suspense></AdminRoute>} />
+
+          {/* Must be the LAST route — catches every unmatched path. */}
+          <Route path="*" element={<NotFound />} />
+        </Route>
+      </Routes>
+    </>
   )
 }

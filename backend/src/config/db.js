@@ -12,6 +12,9 @@ async function connectDB() {
     logger.info('MongoDB connected');
   } catch (err) {
     logger.error('MongoDB connection failed', { error: err.message });
+    // No DB = no service; PM2 restarts us, but only after a failed attempt is
+    // worth retrying (the mongo container may still be coming up).
+    // eslint-disable-next-line no-process-exit -- cannot serve without MongoDB
     process.exit(1);
   }
 

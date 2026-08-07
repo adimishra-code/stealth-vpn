@@ -25,7 +25,28 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRES: z.string().default('15m'),
   JWT_REFRESH_EXPIRES: z.string().default('30d'),
 
+  // JWT-01: ES256 (ECDSA P-256) key pairs, base64-encoded DER (SPKI public,
+  // PKCS8 private). When the private key for a type is set, tokens are signed
+  // with ES256 and verified against the matching public key instead of the
+  // shared HMAC secret above — clients can't forge tokens without the private
+  // key, and a compromised signer doesn't leak a secret usable elsewhere.
+  // Generate with scripts/generate-jwt-keys.js. Both or neither per type:
+  // keep the HMAC secrets during migration, then remove them after rotating.
+  JWT_ACCESS_PUBLIC_KEY: z.string().base64().optional(),
+  JWT_ACCESS_PRIVATE_KEY: z.string().base64().optional(),
+  JWT_REFRESH_PUBLIC_KEY: z.string().base64().optional(),
+  JWT_REFRESH_PRIVATE_KEY: z.string().base64().optional(),
+
   WG_ENCRYPTION_KEY: z.string().length(64).regex(/^[0-9a-fA-F]+$/),
+
+  // Rotation support: set the OLD key here BEFORE rotating WG_ENCRYPTION_KEY
+  // so stored device keys stay decryptable. Remove once no device was
+  // provisioned under the old key.
+  WG_ENCRYPTION_KEY_PREVIOUS: z
+    .string()
+    .length(64)
+    .regex(/^[0-9a-fA-F]+$/)
+    .optional(),
 
   RAZORPAY_KEY_ID: z.string().min(1),
   RAZORPAY_KEY_SECRET: z.string().min(1),
@@ -35,6 +56,11 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1),
 
   SSH_PRIVATE_KEY_PATH: z.string().min(1),
+
+  // Non-root SSH user on VPN nodes (created by scripts/provision-node.sh).
+  // Privileged node commands (wg, wg-quick, tc, xray api) run via the sudoers
+  // whitelist — the app never logs in as root.
+  NODE_SSH_USER: z.string().min(1).optional(),
 
   // When true, bandwidth quota enforcement revokes devices over their
   // plan quota. Basic = 500 GB/month; pro/team unlimited.
@@ -68,6 +94,12 @@ const envSchema = z.object({
   NODE_FRANKFURT_WG_PUBLIC_KEY: z.string().optional(),
   NODE_FRANKFURT_REALITY_PUBLIC_KEY: z.string().optional(),
   NODE_FRANKFURT_REALITY_SHORT_ID: z.string().optional(),
+
+  // ── Xray / stealth mode ────────────────────────────────────────────────────────
+  // gRPC API endpoint on each VPN node (the xray api CLI reads its --server from
+  // this). SNI destination used for the Reality handshake and the VLESS URI.
+  XRAY_API_URL: z.string().url().default('http://127.0.0.1:10085'),
+  XRAY_SNI_DEST: z.string().min(1).default('microsoft.com'),
 });
 
 let env;
@@ -77,6 +109,8 @@ try {
 } catch (err) {
   console.error('Invalid environment variables:');
   console.error(err.errors);
+  // Failing fast on a broken .env beats running with empty secrets in prod.
+  // eslint-disable-next-line no-process-exit -- configuration is fatal by design
   process.exit(1);
 }
 

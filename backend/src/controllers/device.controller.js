@@ -1,16 +1,16 @@
 const Device = require('../models/Device');
 const ServerNode = require('../models/ServerNode');
 const vpn = require('../services/vpn.service');
-const xray = require('../services/xray.service');
 const provisioning = require('../services/provisioning.service');
 const { decryptPrivateKey } = require('../utils/crypto');
 const { generateQRBase64 } = require('../utils/qrcode');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
 const logger = require('../config/logger');
+const { nextQuotaResetAt } = require('../services/bandwidth.service');
 
 exports.listDevices = asyncHandler(async (req, res) => {
   const devices = await Device.find({ userId: req.user._id })
-    .select('-wgPrivateKey -xrayUUID -__v')
+    .select('-wgPrivateKey -encryptedXrayUUID -__v')
     .sort({ createdAt: -1 });
   res.json({ devices, total: devices.length });
 });
@@ -63,7 +63,7 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
   const serverNode = await ServerNode.findOne({ name: device.serverNode });
   if (!serverNode) throw new ApiError(404, 'Server node not found');
 
-  const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode, mode: device.mode });
+  const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode });
 
   res.setHeader('Content-Type', 'text/plain');
   res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}.conf"`);
@@ -79,7 +79,7 @@ exports.qrcode = asyncHandler(async (req, res) => {
   const serverNode = await ServerNode.findOne({ name: device.serverNode });
   if (!serverNode) throw new ApiError(404, 'Server node not found');
 
-  const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode, mode: device.mode });
+  const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode });
   const qrDataUrl = await generateQRBase64(config);
   res.json({ qrDataUrl, deviceName: device.deviceName });
 });
@@ -90,7 +90,7 @@ exports.toggleMode = asyncHandler(async (req, res) => {
     { _id: req.params.id, userId: req.user._id },
     { $set: { mode } },
     { new: true }
-  ).select('-wgPrivateKey -__v');
+  ).select('-wgPrivateKey -encryptedXrayUUID -__v');
 
   if (!device) throw new ApiError(404, 'Device not found');
   if (!device.isActive) throw new ApiError(400, 'Device revoked');
@@ -101,7 +101,7 @@ exports.toggleMode = asyncHandler(async (req, res) => {
 
 exports.getBandwidth = asyncHandler(async (req, res) => {
   const device = await Device.findOne({ _id: req.params.id, userId: req.user._id })
-    .select('deviceName bandwidthUsedMB lastSeen');
+    .select('deviceName bandwidthUsedMB quotaMB quotaExceeded lastSeen');
   if (!device) throw new ApiError(404, 'Device not found');
 
   res.json({
@@ -109,6 +109,11 @@ exports.getBandwidth = asyncHandler(async (req, res) => {
     deviceName: device.deviceName,
     bandwidthUsedMB: device.bandwidthUsedMB,
     bandwidthUsedGB: (device.bandwidthUsedMB / 1024).toFixed(2),
+    // PRIV-19: disclose the quota so usage is honest — null = unlimited,
+    // otherwise the monthly window that applies (reset on the 1st, 00:00 UTC).
+    quotaMB: device.quotaMB,
+    quotaExceeded: device.quotaExceeded,
+    quotaResetAt: nextQuotaResetAt(),
     lastSeen: device.lastSeen,
   });
 });

@@ -1,4 +1,3 @@
-const { z } = require('zod');
 const { ApiError } = require('../utils/ApiError');
 
 function validate(schema) {

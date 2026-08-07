@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import PropTypes from 'prop-types'
+import { Zap, Radar } from 'lucide-react'
 import { useToggleModeMutation } from '../features/devices/devicesApi'
 
 export default function ModeToggle({ device }) {
@@ -16,36 +18,57 @@ export default function ModeToggle({ device }) {
     }
   }
 
+  const stealthOn = mode === 'stealth'
+
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <span className={`text-xs font-semibold ${mode === 'stealth' ? 'text-stealth-400' : 'text-slate-500'}`}>
-          Stealth
-        </span>
-        <div className="w-9 h-5 rounded-full bg-stealth-800 border border-stealth-700 relative">
-          <div
-            className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-all ${
-              mode === 'gaming' ? 'left-4.5 bg-emerald-400' : 'left-0.5 bg-stealth-500'
-            }`}
-            style={{ left: mode === 'gaming' ? '18px' : '2px' }}
-          />
-          <input
-            type="checkbox"
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            checked={mode === 'gaming'}
-            disabled={isLoading}
-            onChange={() => handleToggle(mode === 'stealth' ? 'gaming' : 'stealth')}
-          />
-        </div>
-        <span className={`text-xs font-semibold ${mode === 'gaming' ? 'text-emerald-400' : 'text-slate-500'}`}>
-          Gaming
-        </span>
-        {isLoading && <span className="text-xs text-slate-500 animate-pulse">...</span>}
+    <div className="w-full">
+      <div className="relative flex items-center gap-1 rounded-lg bg-void/70 border border-line p-1">
+        {/* Sliding thumb — physical switch feel, 200ms smooth */}
+        <span
+          aria-hidden="true"
+          className={`absolute top-1 bottom-1 left-1 rounded-md border transition-transform duration-200 ease-smooth ${
+            stealthOn
+              ? 'bg-accent-400/15 border-accent-400/40 shadow-glow-accent'
+              : 'bg-raised border-line'
+          }`}
+          style={{ width: 'calc(50% - 6px)' }}
+        />
+
+        {[
+          { key: 'stealth', label: 'Stealth', Icon: Radar },
+          { key: 'gaming', label: 'Gaming', Icon: Zap },
+        ].map(({ key, label, Icon }) => {
+          const on = mode === key
+          return (
+            <button
+              key={key}
+              onClick={() => !on && handleToggle(key)}
+              disabled={isLoading || on}
+              className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-1.5 px-2 rounded-md transition-colors duration-fast ${
+                on
+                  ? key === 'stealth'
+                    ? 'text-accent-300'
+                    : 'text-ink'
+                  : 'text-faint hover:text-muted'
+              } ${isLoading ? 'opacity-60' : ''}`}
+              title={key === 'gaming' ? 'Raw WireGuard — +2–4ms' : 'Cloaked as HTTPS'}
+            >
+              <Icon size={13} strokeWidth={2} className={on && key === 'stealth' ? 'glow-accent' : ''} />
+              {label}
+            </button>
+          )
+        })}
       </div>
-      <p className="text-[11px] text-slate-500" title="Gaming mode adds only 2–4ms latency">
-        {mode === 'gaming' ? '⚡ Raw WG — +2–4ms' : '🛰️ Cloaked HTTPS'}
-      </p>
-      {error && <p className="text-[11px] text-rose-400">{error}</p>}
+      {error && (
+        <p className="text-[11px] text-danger mt-1.5 animate-fade-in font-medium">{error}</p>
+      )}
     </div>
   )
+}
+
+ModeToggle.propTypes = {
+  device: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    mode: PropTypes.oneOf(['gaming', 'stealth']).isRequired,
+  }).isRequired,
 }

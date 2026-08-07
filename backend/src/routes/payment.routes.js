@@ -3,7 +3,7 @@ const router = express.Router();
 
 const { validate } = require('../middleware/validate.middleware');
 const { authMiddleware } = require('../middleware/auth.middleware');
-const { paymentVerifyLimiter } = require('../middleware/rateLimit.middleware');
+const { paymentVerifyLimiter, paymentLimiter } = require('../middleware/rateLimit.middleware');
 const {
   createOrderSchema,
   verifyPaymentSchema,
@@ -16,11 +16,11 @@ const paymentController = require('../controllers/payment.controller');
 router.use(authMiddleware);
 
 // Razorpay (India, primary)
-router.post('/create-order', validate(createOrderSchema), paymentController.createOrder);
+router.post('/create-order', paymentLimiter, validate(createOrderSchema), paymentController.createOrder);
 router.post('/verify', paymentVerifyLimiter, validate(verifyPaymentSchema), paymentController.verifyPayment);
 
 // Stripe (international)
-router.post('/stripe/session', validate(stripeSessionSchema), paymentController.stripeSession);
+router.post('/stripe/session', paymentLimiter, validate(stripeSessionSchema), paymentController.stripeSession);
 router.post('/stripe/confirm', validate(stripeConfirmSchema), paymentController.stripeConfirm);
 
 // Invoices

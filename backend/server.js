@@ -4,15 +4,32 @@ const env = require('./src/config/env');
 const connectDB = require('./src/config/db');
 const createApp = require('./src/app');
 const logger = require('./src/config/logger');
+const { transporter } = require('./src/services/email.service');
+const { closeSshConnections } = require('./src/services/vpn.service');
 const { alertError, registerProcessHandlers } = require('./src/services/alert.service');
 const { startExpiryCron } = require('./src/cron/expiry.cron');
 const { startBandwidthCron } = require('./src/cron/bandwidth.cron');
-const { startHealthCheckCron } = require('./src/cron/health.cron');
+const { startHealthCheckCron, startWeeklyTlsCheckCron } = require('./src/cron/health.cron');
+const { startBandwidthSnapshotCron } = require('./src/cron/bandwidthSnapshot.cron');
+const { startPendingInvoiceCron } = require('./src/cron/pendingInvoice.cron');
+const { startPurgeCron } = require('./src/cron/purgeExpiredData.cron');
 
 const app = createApp();
 
 async function start() {
   await connectDB();
+
+  // SMTP is configured, so surface a clear warning at boot if it's broken —
+  // but never crash: the API can serve traffic while mail is down, and the
+  // alert service itself relies on the API being up.
+  transporter
+    .verify()
+    .then(() => logger.info('SMTP connection verified'))
+    .catch((err) =>
+      logger.warn('SMTP misconfigured — transactional emails will fail', {
+        error: err.message,
+      })
+    );
 
   // CRON_ENABLED gates all scheduled jobs. Run the API on any number of
   // replicas, but set CRON_ENABLED=true on exactly ONE of them — otherwise
@@ -21,6 +38,10 @@ async function start() {
     startExpiryCron();
     startBandwidthCron();
     startHealthCheckCron();
+    startWeeklyTlsCheckCron();
+    startBandwidthSnapshotCron();
+    startPendingInvoiceCron();
+    startPurgeCron();
     logger.info('Cron jobs started');
   } else {
     logger.warn('CRON_ENABLED=false — scheduled jobs are NOT running on this worker');
@@ -41,12 +62,12 @@ async function start() {
   const shutdown = (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    logger.warn(`${signal} received — draining connections (15s budget)`);
+    logger.warn(`${signal} received — draining connections (10s budget)`);
 
     const forceExit = setTimeout(() => {
       logger.error('Graceful shutdown timed out — forcing exit');
       process.exit(1);
-    }, 15000);
+    }, 10000);
     forceExit.unref();
 
     server.close(async (err) => {
@@ -54,6 +75,7 @@ async function start() {
         logger.error('Error closing HTTP server', { error: err.message });
       }
       try {
+        await closeSshConnections();
         await mongoose.disconnect();
         logger.info('Shutdown complete');
         process.exit(0);

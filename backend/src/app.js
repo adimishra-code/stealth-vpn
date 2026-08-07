@@ -3,6 +3,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
 const env = require('./config/env');
 const logger = require('./config/logger');
 
@@ -11,6 +12,7 @@ const paymentRoutes = require('./routes/payment.routes');
 const webhookRoutes = require('./routes/webhook.routes');
 const deviceRoutes = require('./routes/device.routes');
 const serverRoutes = require('./routes/server.routes');
+const bandwidthRoutes = require('./routes/bandwidth.routes');
 const adminRoutes = require('./routes/admin.routes');
 
 const { apiLimiter } = require('./middleware/rateLimit.middleware');
@@ -43,6 +45,11 @@ function createApp() {
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
 
+  // ── NoSQL injection guard ────────────────────────────────────────────────────
+  // Strips $ and . operators from req.body/query/params. The webhook's raw body
+  // is a Buffer (registered above), which this middleware leaves untouched.
+  app.use(mongoSanitize());
+
   // ── Logging ──────────────────────────────────────────────────────────────
   app.use(
     morgan('dev', {
@@ -67,6 +74,7 @@ function createApp() {
   app.use('/api/payment', paymentRoutes);
   app.use('/api/devices', deviceRoutes);
   app.use('/api/servers', serverRoutes);
+  app.use('/api/bandwidth', bandwidthRoutes);
   app.use('/api/admin', adminRoutes);
 
   // ── 404 ──────────────────────────────────────────────────────────────────
@@ -75,7 +83,7 @@ function createApp() {
   });
 
   // ── Error handler ────────────────────────────────────────────────────────
-  app.use((err, req, res, next) => {
+  app.use((err, req, res, _next) => {
     logger.error(err.message, { stack: err.stack, path: req.path });
 
     // 4xx client errors are expected and noisy (bad input, races the client

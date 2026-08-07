@@ -66,24 +66,36 @@ We do not log, inspect, store, or mine **Content**:
 This is a **"no Content logs"** policy. The Service cannot answer "what did
 this user access" — the data does not exist.
 
-### 3.2 What We Collect and Retain (CERT-In compliance)
-To comply with the **CERT-In Directions of 28 April 2022** (subscriber
-identity and connection records for VPN providers) and the IT Act 2000
-Sections 43A, 66C and 69:
+### 3.2 What We Collect and Retain
+
+The table below reflects what the platform actually stores today — nothing is
+retained "in case" it might be useful, and no records are kept beyond what
+the table says:
 
 | Data | Purpose | Retention |
 |---|---|---|
-| Email address | Account management, login, billing | Until account deletion + 5 years after closure |
-| Password hash (bcrypt) | Authentication | Same as above |
-| Payment records | Tax compliance (Income Tax Act 1961), refunds | 8 years |
-| Subscriber identity (IP at registration/payment) | CERT-In subscriber records | 5 years |
-| Connection metadata (login timestamps, source IPs, assigned tunnel IP, duration) | CERT-In connection records | 5 years |
-| Device names + public keys | Device management | Until device revoked |
-| Aggregated bandwidth per device (MB totals) | Quota enforcement, capacity planning | 90 days |
+| Email address | Account management, login, billing | Until account deletion (§3.4) |
+| Password hash (bcrypt, cost 12) | Authentication | Until account deletion |
+| Payment gateway customer references (Razorpay/Stripe IDs) | Billing, refunds | Until account deletion; the gateway keeps its own records |
+| Invoices (plan, amount, currency, status, dates) | Billing history, refunds | Until account deletion (deletionScheduledAt purge) |
+| Device names, WireGuard public keys, assigned tunnel IP, node | Device management, quota, incident response | Until the device is revoked |
+| Bandwidth totals per device (MB) | Quota enforcement | 90 days rolling |
+| Refresh-token digests (SHA-256) | Session management | Until logout / deletion |
 
-The CERT-In records are stored **encrypted at rest** (AES-256-GCM), with
-access restricted to two named administrators, all access logged, and
-retention enforced by automated purge after 5 years.
+**CERT-In compliance — accurate statement:** the CERT-In Directions of
+28 April 2022 require VPN providers to maintain subscriber identity and
+connection records (logon/logoff timestamps, source IP, assigned IP) for five
+years. **The platform does not currently collect or retain such connection
+records, and this document does not assert compliance.** Whether the operating
+entity must collect them is a decision for its counsel; before launch, either
+implement that collection (and the retention purge) or obtain written advice
+on the operator's position. This section will be updated to match whatever
+the operator decides.
+
+**Encryption at rest — accurate statement:** user data in MongoDB is **not**
+encrypted at rest by default; all transport is TLS. Do not claim
+"encrypted at rest" unless the operator has enabled disk or field-level
+encryption.
 
 ### 3.3 Lawful Access
 We respond to lawful requests under Section 69 of the IT Act 2000, court
@@ -91,10 +103,12 @@ orders, and CERT-In directions. We will provide the records described in
 §3.2 only — never Content, because Content is not retained.
 
 ### 3.4 GDPR (EU/UK users)
+- Right to erasure: `DELETE /api/auth/me` (Settings → Delete account) revokes
+  every device on the nodes immediately, invalidates all sessions, and
+  schedules hard deletion of the account, its devices and invoices after a
+  14-day grace period (support can cancel accidental requests by clearing the
+  pending deletion). The daily purge job then removes the data permanently.
 - Right to access: request your retained records; delivered within 30 days.
-- Right to erasure: account deletion removes all personal data except records
-  we are legally required to keep (payment + CERT-In), which are purged at
-  the end of the legal retention period.
 - Right to data portability: email, plan history, invoices exportable.
 - DPA: data processed in [hosting locations]; transfer mechanisms per
   Standard Contractual Clauses.
@@ -185,9 +199,8 @@ cancel without penalty within the notice period.
 
 1. [ ] Registered company incorporated in India; legal review sign-off
 2. [ ] Registered office city + address filled into §1 and §10
-3. [ ] CERT-In records collection (subscriber identity + connection metadata)
-      implemented in the account/billing system, encrypted at rest, 5-year
-      purge job scheduled
+3. [ ] CERT-In position documented in §3.2 (counsel confirms whether
+      connection-record collection is required; §3.2 updated to match)
 4. [ ] Logging policy matches implementation (no Content anywhere)
 5. [ ] Razorpay merchant agreement signed — no "no-log VPN" claims made to
       Razorpay or on marketing materials; use "no Content logs" wording

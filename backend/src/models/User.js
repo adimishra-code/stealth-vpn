@@ -21,6 +21,8 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // CRYPTO-02: these hold SHA-256 digests of the tokens (see
+  // utils/crypto.js hashToken) — the raw values live only in email links.
   emailVerifyToken: String,
   emailVerifyExpires: Date,
   passwordResetToken: String,
@@ -49,6 +51,21 @@ const UserSchema = new mongoose.Schema({
 
   refreshTokens: [String],
 
+  // ADMIN-01: TOTP 2FA for admin accounts. The secret is stored AES-256-GCM
+  // encrypted (encryptPrivateKey envelope, key = WG_ENCRYPTION_KEY) — a
+  // plaintext TOTP secret in Mongo would defeat the purpose. totpEnabled is
+  // the operative flag; setup re-generates the secret, disabling clears it.
+  totpSecretEnc: String,
+  totpEnabled: {
+    type: Boolean,
+    default: false,
+  },
+
+  // When the user requested account deletion (GDPR-style right). The purge
+  // cron hard-deletes the account (and its devices/invoices) once this time
+  // passes; grace period lets support cancel accidental requests.
+  deletionScheduledAt: Date,
+
   createdAt: {
     type: Date,
     default: Date.now,
@@ -58,6 +75,7 @@ const UserSchema = new mongoose.Schema({
     transform(doc, ret) {
       delete ret.passwordHash;
       delete ret.refreshTokens;
+      delete ret.totpSecretEnc;
       delete ret.emailVerifyToken;
       delete ret.emailVerifyExpires;
       delete ret.passwordResetToken;
@@ -71,6 +89,11 @@ const UserSchema = new mongoose.Schema({
 UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ planExpiresAt: 1 });
 UserSchema.index({ isActive: 1, plan: 1 });
+// Token lookups (verify/reset) run by digest — index so they stay O(log n).
+UserSchema.index({ emailVerifyToken: 1 }, { sparse: true });
+UserSchema.index({ passwordResetToken: 1 }, { sparse: true });
+// Purge cron: accounts past their scheduled deletion.
+UserSchema.index({ deletionScheduledAt: 1 }, { sparse: true });
 
 UserSchema.pre('save', async function (next) {
   if (!this.isModified('passwordHash')) return next();

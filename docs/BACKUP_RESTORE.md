@@ -104,8 +104,7 @@ Monthly drill checklist (calendar reminder):
 ```
 
 Rotation note: `backup-mongo.sh` prunes on the host only. Set matching
-retention on the offsite bucket (30 days) so restored data is never newer
-than the CERT-In 5-year retention job expects (see `docs/LEGAL.md` §3.2 —
-billing records 8 years, CERT-In records 5 years; if legal retention demands
-longer, raise `RETENTION_DAYS` accordingly and keep the offsite copy policy
-in sync).
+retention on the offsite bucket (30 days). **The Mongo dump alone is not a
+restorable backup — the decryption keys (`WG_ENCRYPTION_KEY`, JWT secrets,
+`.env`, node keys) must be backed up separately; see
+`docs/BACKUP_KEY_SETUP.md` before your first restore drill.**

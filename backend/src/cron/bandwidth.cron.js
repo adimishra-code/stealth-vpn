@@ -1,11 +1,18 @@
 const cron = require('node-cron');
-const ServerNode = require('../models/ServerNode');
 const bandwidthService = require('../services/bandwidth.service');
 const logger = require('../config/logger');
 const { alertCronFailure } = require('../services/alert.service');
 
 function startBandwidthCron() {
+  // Overlap guard: a 5-minute pass against an unreachable node (3 SSH retries
+  // × 2 nodes) can exceed 5 minutes — never run two passes concurrently.
+  let running = false;
   cron.schedule('*/5 * * * *', async () => {
+    if (running) {
+      logger.warn('Bandwidth cron skipped — previous run still active');
+      return;
+    }
+    running = true;
     try {
       const results = await bandwidthService.syncAllNodes();
       const updated = results.filter((r) => r.updated > 0).length;
@@ -16,6 +23,8 @@ function startBandwidthCron() {
     } catch (err) {
       logger.error('Bandwidth cron error', { error: err.message });
       alertCronFailure('bandwidth', err);
+    } finally {
+      running = false;
     }
   });
 }

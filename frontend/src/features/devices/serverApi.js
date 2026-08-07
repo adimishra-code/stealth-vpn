@@ -9,7 +9,13 @@ export const serverApi = api.injectEndpoints({
     serverHealth: build.query({
       query: (name) => `/servers/${name}/health`,
     }),
+    getDailyBandwidth: build.query({
+      query: (params = {}) => ({
+        url: '/bandwidth/daily',
+        params,
+      }),
+    }),
   }),
 })
 
-export const { useListServersQuery, useServerHealthQuery } = serverApi
+export const { useListServersQuery, useServerHealthQuery, useGetDailyBandwidthQuery } = serverApi
