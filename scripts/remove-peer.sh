@@ -26,8 +26,8 @@ wg-quick save wg0
 # ── Clean up TC handles ──────────────────────────────────────────────────────
 if [[ "$TC_HANDLE" != "none" && -n "$TC_HANDLE" ]]; then
   echo "[-] Removing TC handles (1:${TC_HANDLE}, 2:${TC_HANDLE})"
-  tc class del dev wg0 classid 1:${TC_HANDLE} 2>/dev/null || echo "  (ingress class already removed)"
-  tc class del dev wg0 classid 2:${TC_HANDLE} 2>/dev/null || echo "  (egress class already removed)"
+  tc class del dev wg0 classid 1:"${TC_HANDLE}" 2>/dev/null || echo "  (ingress class already removed)"
+  tc class del dev wg0 classid 2:"${TC_HANDLE}" 2>/dev/null || echo "  (egress class already removed)"
 fi
 
 echo ""

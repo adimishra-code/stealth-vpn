@@ -51,7 +51,7 @@ systemctl start fail2ban
 # Step 3: Harden SSH + create least-privilege operator user
 # ──────────────────────────────────────────────────────────────────────────────
 log "Hardening SSH..."
-cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%s)
+cp "/etc/ssh/sshd_config" "/etc/ssh/sshd_config.bak.$(date +%s)"
 
 # Backend connects as non-root 'stealthnode' — root login is disabled.
 id -u stealthnode >/dev/null 2>&1 || useradd -r -m -s /bin/bash stealthnode
@@ -372,8 +372,8 @@ ip link set wg0 mtu 1380
 
 # Randomize outbound NAT port per connection. Match by interface, not
 # --dport 51820 (traffic *to* WG; tunneled flows exit with source port 51820).
-iptables -t nat -C POSTROUTING -o ${IFACE} -i wg0 -j MASQUERADE --random-fully 2>/dev/null || \
-  iptables -t nat -A POSTROUTING -o ${IFACE} -i wg0 -j MASQUERADE --random-fully
+iptables -t nat -C POSTROUTING -o "${IFACE}" -i wg0 -j MASQUERADE --random-fully 2>/dev/null || \
+  iptables -t nat -A POSTROUTING -o "${IFACE}" -i wg0 -j MASQUERADE --random-fully
 
 netfilter-persistent save
 

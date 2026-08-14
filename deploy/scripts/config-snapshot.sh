@@ -22,6 +22,7 @@ if [[ $# -gt 0 ]]; then
 else
   ENV_FILE="${ENV_FILE:-/srv/stealthvpn/backend/.env}"
   if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
     set -a; source "$ENV_FILE"; set +a
   fi
   NODES=()
@@ -59,7 +60,8 @@ for ip in "${NODES[@]}"; do
     name="$(basename "${f}").txt"
     # Missing must be visible: empty vs vanished used to be indistinguishable,
     # so deletions were silent — store explicit "MISSING" markers.
-    if content="$(ssh "${SSH_OPTS[@]}" "${SSH_USER}@${ip}" "cat ${f} 2>/dev/null")"; then
+    # shellcheck disable=SC2029
+    if content="$(ssh "${SSH_OPTS[@]}" "${SSH_USER}@${ip}" "cat '${f}' 2>/dev/null")"; then
       printf '%s\n' "${content}" > "${DEST}/${name}"
     else
       echo "!! ${ip}: ${f} is MISSING on the node" >&2
@@ -70,9 +72,9 @@ for ip in "${NODES[@]}"; do
   # Manifest + drift check against the previous snapshot day.
   (
     cd "${DEST}"
-    sha256sum * > SHA256SUMS 2>/dev/null
+    sha256sum ./* > SHA256SUMS 2>/dev/null
   )
-  PREV="$(ls -1 "${SNAP_ROOT}/${ip}" | grep -v "${TODAY}" | sort | tail -1 || true)"
+  PREV="$(find "${SNAP_ROOT}/${ip}" -mindepth 1 -maxdepth 1 -type d ! -name "${TODAY}" -printf '%f\n' | sort | tail -1 || true)"
   if [[ -n "${PREV}" ]] && [[ -f "${SNAP_ROOT}/${ip}/${PREV}/SHA256SUMS" ]]; then
     if diff -q "${SNAP_ROOT}/${ip}/${PREV}/SHA256SUMS" "${DEST}/SHA256SUMS" >/dev/null 2>&1; then
       echo "==> ${ip}: no drift vs ${PREV}"

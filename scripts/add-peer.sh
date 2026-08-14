@@ -32,17 +32,17 @@ wg-quick save wg0
 if [[ "$PLAN" == "basic" ]]; then
   echo "[+] Applying 10 Mbps throttle (handle: 1:${TC_HANDLE})"
 
-  tc class add dev wg0 parent 1:0 classid 1:${TC_HANDLE} htb rate 10mbit burst 15mbit 2>/dev/null || \
-    tc class change dev wg0 parent 1:0 classid 1:${TC_HANDLE} htb rate 10mbit burst 15mbit
+  tc class add dev wg0 parent 1:0 classid 1:"${TC_HANDLE}" htb rate 10mbit burst 15mbit 2>/dev/null || \
+    tc class change dev wg0 parent 1:0 classid 1:"${TC_HANDLE}" htb rate 10mbit burst 15mbit
 
   tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 \
-    match ip dst "${ASSIGNED_IP}/32" flowid 1:${TC_HANDLE} 2>/dev/null || true
+    match ip dst "${ASSIGNED_IP}/32" flowid 1:"${TC_HANDLE}" 2>/dev/null || true
 
-  tc class add dev wg0 parent 1:0 classid 2:${TC_HANDLE} htb rate 10mbit burst 15mbit 2>/dev/null || \
-    tc class change dev wg0 parent 1:0 classid 2:${TC_HANDLE} htb rate 10mbit burst 15mbit
+  tc class add dev wg0 parent 1:0 classid 2:"${TC_HANDLE}" htb rate 10mbit burst 15mbit 2>/dev/null || \
+    tc class change dev wg0 parent 1:0 classid 2:"${TC_HANDLE}" htb rate 10mbit burst 15mbit
 
   tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 \
-    match ip src "${ASSIGNED_IP}/32" flowid 2:${TC_HANDLE} 2>/dev/null || true
+    match ip src "${ASSIGNED_IP}/32" flowid 2:"${TC_HANDLE}" 2>/dev/null || true
 fi
 
 # ── Verify ────────────────────────────────────────────────────────────────────

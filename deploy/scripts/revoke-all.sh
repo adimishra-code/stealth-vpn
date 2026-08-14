@@ -22,6 +22,7 @@ if [[ $# -gt 0 ]]; then
 else
   ENV_FILE="${ENV_FILE:-/srv/stealthvpn/backend/.env}"
   if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
     set -a; source "$ENV_FILE"; set +a
   fi
   NODES=()
@@ -45,7 +46,7 @@ for ip in "${NODES[@]}"; do
   if [[ -n "${PEERS}" ]]; then
     while IFS= read -r pk; do
       [[ -z "${pk}" ]] && continue
-      ssh "${SSH_OPTS[@]}" "${SSH_USER}@${ip}" "sudo -n wg set wg0 peer ${pk} remove"
+      ssh -n "${SSH_OPTS[@]}" "${SSH_USER}@${ip}" "sudo -n wg set wg0 peer '${pk}' remove"
       echo "    revoked ${pk:0:8}..."
     done <<< "${PEERS}"
   fi

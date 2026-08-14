@@ -18,6 +18,7 @@ fi
 # ── Load env ──────────────────────────────────────────────────────────────────
 # Source backend/.env if present (values below are only defaults).
 if [[ -f /srv/stealthvpn/backend/.env ]]; then
+  # shellcheck disable=SC1091
   set -a; source /srv/stealthvpn/backend/.env; set +a
 fi
 
@@ -83,7 +84,7 @@ fi
 # Never fails the script either way.
 log "Enabling MongoDB authentication..."
 if ! grep -q 'authorization: enabled' /etc/mongod.conf; then
-  cp /etc/mongod.conf /etc/mongod.conf.bak.$(date +%s)
+  cp "/etc/mongod.conf" "/etc/mongod.conf.bak.$(date +%s)"
   if grep -q '^#security:' /etc/mongod.conf; then
     sed -i 's/^#security:/security:\n  authorization: enabled/' /etc/mongod.conf
   else
@@ -321,7 +322,7 @@ SUDOERS
 chmod 440 /etc/sudoers.d/stealthnode
 
 log "Hardening SSH..."
-cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%s)
+cp "/etc/ssh/sshd_config" "/etc/ssh/sshd_config.bak.$(date +%s)"
 sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 sed -i 's/^#\?MaxAuthTries.*/MaxAuthTries 3/' /etc/ssh/sshd_config

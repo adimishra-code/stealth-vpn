@@ -24,6 +24,7 @@ if [[ $# -gt 0 ]]; then
 else
   ENV_FILE="${ENV_FILE:-/srv/stealthvpn/backend/.env}"
   if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
     set -a; source "$ENV_FILE"; set +a
   fi
   IPS=()
