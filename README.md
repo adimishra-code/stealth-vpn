@@ -1,5 +1,7 @@
 # StealthVPN
 
+![CI](https://github.com/adimishra-code/stealth-vpn/workflows/CI/badge.svg)
+
 A stealth VPN service built around WireGuard and Xray/REALITY, designed to stay
 usable on networks that actively fingerprint and block VPN traffic.
 
@@ -8,6 +10,30 @@ usable on networks that actively fingerprint and block VPN traffic.
 > session handling, crypto key scoping, rate limiting, deploy hardening,
 > migration tooling) has been completed and verified. VPN nodes are
 > provisioned via `deploy/setup.sh` and the scripts in `scripts/`.
+
+## Quick reference
+
+```bash
+# Backend
+cd backend
+npm install
+cp .env.example .env
+npm run dev        # API on :5000
+npm test           # 83 tests
+npm run lint       # ESLint --max-warnings 0
+
+# Frontend
+cd frontend
+npm install
+cp .env.example .env
+npm run dev        # Vite dev server on :5173
+npm test           # 22 tests
+npm run build      # production build
+npm run lint       # ESLint --max-warnings 0
+
+# Shell scripts (run from repo root)
+shellcheck deploy/*.sh deploy/scripts/*.sh scripts/*.sh
+```
 
 ## What's implemented
 
