@@ -36,13 +36,11 @@ export default function Layout() {
   const [logout] = useLogoutMutation()
   const [menuOpen, setMenuOpen] = useState(false)
 
-  // Tunnel status: a paid plan with at least one active device = protected.
   const { data: devicesData } = useListDevicesQuery(undefined, { skip: !user || AUTH_PATHS.includes(location.pathname) })
   const tunneled = !!user && user.plan !== 'free' && (devicesData?.devices || []).some((d) => d.isActive)
 
-  // A route change must close the drawer, or it stays open over the new page.
-  // Done as a state adjustment during render (React's recommended replacement
-  // for setState-in-effect) so no cascading render is produced.
+  // Close the drawer on route change — done during render (the recommended
+  // setState-in-effect replacement) so no cascading render is produced.
   const [prevPath, setPrevPath] = useState(location.pathname)
   if (prevPath !== location.pathname) {
     setPrevPath(location.pathname)
@@ -65,9 +63,7 @@ export default function Layout() {
     ? [...navItems, { to: '/admin', label: 'Admin', icon: ShieldCheck, accent: true }]
     : navItems
 
-  // ── Sliding accent bar: sits on the active item, slides to hovered item,
-  // snaps back on mouse leave. offsetTop math keeps it vertically centred
-  // on the 40px nav rows against the 24px bar.
+  // Sliding accent bar: centers on hovered/active items via offsetTop math.
   const navRef = useRef(null)
   const [barTop, setBarTop] = useState(0)
   const [barVisible, setBarVisible] = useState(false)
@@ -95,7 +91,7 @@ export default function Layout() {
 
   return (
     <div className={showNav ? 'min-h-screen flex flex-col md:pl-60' : 'min-h-screen flex flex-col'}>
-      {/* ── Sidebar (desktop) — blends into the background on its left edge ── */}
+      {/* Sidebar (desktop) */}
       {showNav && (
         <aside className="hidden md:flex fixed inset-y-0 left-0 w-60 z-40 flex-col bg-surface border-r border-line">
           <div className="px-5 h-16 flex items-center">
@@ -129,7 +125,7 @@ export default function Layout() {
             })}
           </nav>
 
-          {/* Connection status — the single question the app must answer */}
+          {/* Connection status */}
           <div className="px-4 py-4 border-t border-line">
             <div className="flex items-center gap-2.5 px-1">
               <span className="relative flex h-2 w-2">
@@ -151,7 +147,7 @@ export default function Layout() {
         </aside>
       )}
 
-      {/* ── Mobile top bar (auth pages carry their own brand, no bar) ── */}
+      {/* Mobile top bar — auth pages carry their own brand, so no bar */}
       <header className={`md:hidden sticky top-0 z-40 border-b border-line bg-void/95 ${isAuthPage ? 'hidden' : ''}`}>
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
           <Link to="/" className="flex items-center gap-2.5 shrink-0">
@@ -186,7 +182,6 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* Mobile drawer */}
         {showNav && menuOpen && (
           <div className="md:hidden border-t border-line glass animate-fade-in">
             <nav className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-1">
@@ -221,7 +216,7 @@ export default function Layout() {
         )}
       </header>
 
-      {/* ── Page — keyed on pathname so each route enters with fade-up ── */}
+      {/* Keyed on pathname so each route re-runs its fade-up entrance */}
       <main className="flex-1">
         <div key={location.pathname} className="page-enter max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-10">
           <Outlet />

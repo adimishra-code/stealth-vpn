@@ -87,7 +87,7 @@ export default function Landing() {
         </div>
       </header>
 
-      {/* ── Hero ────────────────────────────────────────────────────────── */}
+      {/* Hero */}
       <section className="relative overflow-hidden noise">
         <div className="absolute inset-0 -z-10 pointer-events-none">
           {/* Subtle radial from centre — no grid, no gradient headline */}
@@ -136,7 +136,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── Features ────────────────────────────────────────────────────── */}
+      {/* Features */}
       <section id="features" className="max-w-6xl mx-auto px-4 py-20 scroll-mt-20">
         <Reveal>
           <div className="text-center mb-14">
@@ -161,7 +161,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── Pricing ─────────────────────────────────────────────────────── */}
+      {/* Pricing */}
       <section id="pricing" className="max-w-6xl mx-auto px-4 py-20 scroll-mt-20">
         <Reveal>
           <div className="text-center mb-14">
@@ -215,7 +215,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── Footer ──────────────────────────────────────────────────────── */}
+      {/* Footer */}
       <footer className="border-t border-line">
         <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">

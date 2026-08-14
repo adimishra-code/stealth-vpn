@@ -18,6 +18,11 @@ function sendError(res, err) {
   if (err.name === 'ValidationError') {
     return res.status(400).json({ error: 'Validation failed', details: err.message });
   }
+  // CSRF-02: csrf-csrf's ForbiddenError means the x-csrf-token header didn't
+  // match the signed cookie (or was missing) — a 4xx, never a 500.
+  if (err.name === 'ForbiddenError') {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
   if (err.name === 'MongoServerError' && err.code === 11000) {
     const field = Object.keys(err.keyPattern)[0];
     return res.status(409).json({ error: `${field} already in use` });

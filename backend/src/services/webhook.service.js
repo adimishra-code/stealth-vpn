@@ -16,9 +16,9 @@ function extendedExpiry(user) {
     : new Date(now.getTime() + ms);
 }
 
-// Returns 'ok' when applied, 'duplicate' when already processed (webhook retry),
-// or 'retry' when the invoice/user is not visible yet — the caller turns 'retry'
-// into a non-2xx so the gateway redelivers instead of dropping the payment.
+// Returns 'ok' when applied, 'duplicate' when already processed (webhook
+// retry), or 'retry' when the invoice/user isn't visible yet — the caller
+// turns 'retry' into a non-2xx so the gateway redelivers.
 async function applyRenewal({ gateway, orderId, paymentId }) {
   // Atomic pending -> paid claim. A retried webhook, or a concurrent client-side
   // verify, matches zero documents and cannot credit the plan a second time.
@@ -51,20 +51,22 @@ async function applyRenewal({ gateway, orderId, paymentId }) {
   user.notified = {};
   await user.save();
 
-  // Throttle removal talks to the VPN nodes over SSH and can take seconds —
-  // Razorpay retries webhooks on slow responses, so it must NOT hold up the
-  // 200. The invoice was already claimed (idempotency) above, so a duplicate
-  // webhook cannot double-credit or double-clean. Fire-and-forget with a
-  // structured failure log for manual recovery.
+  // Throttle removal runs BEFORE the 200 so a device that just upgraded to
+  // Pro/Team stops being shaped immediately. The query filters by
+  // plan: 'basic', so re-entry on the same webhook (idempotent via the
+  // invoice claim above) finds zero devices. Failures are logged but do not
+  // fail the webhook — the next renewal retires them.
   if (invoice.plan !== 'basic') {
-    applyPlanUpgradeCleanup(user._id, invoice.plan).catch((err) => {
-      logger.error('[WEBHOOK FAIL] throttle cleanup', {
+    try {
+      await applyPlanUpgradeCleanup(user._id, invoice.plan);
+    } catch (err) {
+      logger.error('[WEBHOOK] throttle cleanup failed — retried next renewal', {
         orderId,
         userId: user._id.toString(),
         plan: invoice.plan,
         error: err.message,
       });
-    });
+    }
   }
 
   logger.info('Renewal applied', {
@@ -75,10 +77,9 @@ async function applyRenewal({ gateway, orderId, paymentId }) {
   return 'ok';
 }
 
-// D3 — plan upgrade path. When a user moves OFF basic, the 10 Mbps tc
-// throttles on their existing basic devices must go, otherwise the old
-// device keeps being shaped forever. Best-effort: a failed SSH call is
-// logged (never thrown) — it runs detached from the webhook response.
+// D3 — plan upgrade path: moving OFF basic must remove the 10 Mbps tc
+// throttles on existing basic devices, or they stay shaped forever.
+// Best-effort — SSH failures are logged (never thrown), retried next renewal.
 async function applyPlanUpgradeCleanup(userId, newPlan) {
   if (newPlan === 'basic') return;
 

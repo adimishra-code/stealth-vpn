@@ -7,11 +7,10 @@ const { generateWGKeypair, generateTCHandle, isValidPublicKey } = require('../ut
 const { encryptPrivateKey, decryptPrivateKey, randomUUID } = require('../utils/crypto');
 
 // ── SSH singleton + resilience ────────────────────────────────────────────────
-// One connection per node, reused across every operation (provisioning, health
-// checks, bandwidth sync all hit the same hosts every few minutes). A fresh
-// SSH handshake per call is ~200ms+ of latency and puts load on sshd for no
-// benefit. Connections survive errors unless they're gone; a dead cached
-// connection is dropped so the next call reconnects automatically.
+// One connection per node, reused across every operation — a fresh handshake
+// per call is ~200ms+ of latency and sshd load. Connections survive errors
+// unless they're gone; dead cached connections are dropped so the next call
+// reconnects automatically.
 
 const sshClients = new Map(); // node name -> { ssh: NodeSSH|null, connecting: Promise|null }
 
@@ -22,9 +21,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Normalizes raw node-ssh / net errors into a typed ApiError(502) so callers
-// can distinguish "node unreachable" from WG/Xray logic failures, and so the
-// error handler sends a clean 502 instead of a 500 with an SSH stack trace.
+// Normalizes node-ssh/net errors into ApiError(502) so callers distinguish
+// "node unreachable" from WG/Xray logic failures, and the error handler
+// sends a clean 502 instead of a 500 with an SSH stack trace.
 function wrapSshError(serverNode, err) {
   if (err instanceof ApiError) return err;
   return new ApiError(502, `Cannot reach VPN node ${serverNode.name}: ${err.message}`);
@@ -119,12 +118,9 @@ async function getServerNode(name) {
 function generateWGConfig({ privateKey, assignedIP, serverNode }) {
   const endpoint = `${serverNode.ip}:${serverNode.wgPort}`;
 
-  // IPv4-only tunnel: clients get an IPv4 address with no IPv6 route inside
-  // the tunnel. Routing ::/0 here would send native-IPv6 traffic (e.g. DNS or
-  // a dual-stack app) outside the tunnel — an IPv6 leak. IPv6 is blocked by
-  // the server's net.ipv6.conf.wg0.disable_ipv6=1 and the client kill switch.
-  // MTU 1380 leaves headroom for the WireGuard overhead on top of the path
-  // MTU, avoiding IPv4 fragmentation and its packet drops on many networks.
+  // IPv4-only tunnel: routing ::/0 inside would send native-IPv6 traffic
+  // outside the tunnel (IPv6 leak). MTU 1380 avoids IPv4 fragmentation and
+  // its packet drops on many networks.
   const allowedIPs = '0.0.0.0/0';
   const postUp = `iptables -I OUTPUT ! -o %i -m mark ! --mark $(wg show %i fwmark) -m addrtype ! --dst-type LOCAL -j REJECT`;
   const preDown = `iptables -D OUTPUT ! -o %i -m mark ! --mark $(wg show %i fwmark) -m addrtype ! --dst-type LOCAL -j REJECT`;
@@ -166,12 +162,23 @@ async function provisionPeer({ serverNode, publicKey, assignedIP, plan }) {
   let tcHandle = null;
   if (plan === 'basic') {
     tcHandle = generateTCHandle();
-    await ssh.execCommand(`
-        sudo -n tc class add dev wg0 parent 1:0 classid 1:${tcHandle} htb rate 10mbit burst 15mbit 2>/dev/null
+    const { stderr } = await ssh.execCommand(`
+        sudo -n tc class add dev wg0 parent 1:0 classid 1:${tcHandle} htb rate 10mbit burst 15mbit
         sudo -n tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 match ip dst ${assignedIP}/32 flowid 1:${tcHandle}
-        sudo -n tc class add dev wg0 parent 1:0 classid 2:${tcHandle} htb rate 10mbit burst 15mbit 2>/dev/null
+        sudo -n tc class add dev wg0 parent 1:0 classid 2:${tcHandle} htb rate 10mbit burst 15mbit
         sudo -n tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 match ip src ${assignedIP}/32 flowid 2:${tcHandle}
       `);
+    // Throttle failures used to be hidden behind 2>/dev/null, leaving basic
+    // peers at FULL speed (free bandwidth). Anything except the idempotent
+    // "File exists" is a real failure: throw so the rollback revokes the peer.
+    const realErrors = stderr.split('\n').filter((l) => l && !l.includes('File exists'));
+    if (realErrors.length) {
+      logger.error('tc throttling failed', {
+        node: serverNode.name,
+        stderr: realErrors.join('\n'),
+      });
+      throw new Error(`tc throttling failed: ${realErrors.join('; ')}`);
+    }
   }
 
   logger.info('Peer provisioned', {

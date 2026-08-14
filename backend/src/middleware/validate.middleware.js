@@ -15,4 +15,21 @@ function validate(schema) {
   };
 }
 
-module.exports = { validate };
+// Same coercion/whitelist rules for query strings, which arrive as raw
+// strings — unvalidated params reach pagination math as NaN/Infinity.
+function validateQuery(schema) {
+  return (req, res, next) => {
+    const result = schema.safeParse(req.query);
+    if (!result.success) {
+      const details = result.error.issues.map((i) => ({
+        field: i.path.join('.'),
+        message: i.message,
+      }));
+      return next(new ApiError(400, 'Validation failed', details));
+    }
+    req.query = result.data;
+    next();
+  };
+}
+
+module.exports = { validate, validateQuery };

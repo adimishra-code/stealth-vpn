@@ -2,10 +2,9 @@ const cron = require('node-cron');
 const Invoice = require('../models/Invoice');
 const logger = require('../config/logger');
 
-// Sweep abandoned checkouts: a Razorpay/Stripe order that was created but
-// never paid leaves a `pending` invoice row forever. Nothing depends on those
-// rows, but they accumulate and pollute the invoice history. Mark them
-// `abandoned` after a grace period — the user can always create a new order.
+// Sweep abandoned checkouts: a never-paid order leaves a `pending` row
+// forever. Mark it `abandoned` after a grace period — the user can always
+// create a new order.
 function startPendingInvoiceCron() {
   let isRunning = false;
 

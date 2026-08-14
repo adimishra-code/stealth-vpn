@@ -113,6 +113,25 @@ Required `.env` values:
 Keys that may stay empty: the whole `ALERT_*` block, `SENTRY_DSN`,
 `ALERT_WEBHOOK_URL`.
 
+## 6.5. Control plane — first admin
+
+The API has no public admin-creation endpoint — the only safe way to bootstrap
+the operator account is the seed script. Run it once after the first `pm2
+start` succeeds:
+
+```bash
+cd /opt/stealth-vpn/backend
+node scripts/seed-admin.js ops@example.com 'YOUR_STRONG_PASSWORD'
+```
+
+Output: `Admin account created: ops@example.com (id=...)`. Log in at `/login`,
+then go to **Settings → Two-factor authentication** and enable TOTP. Every
+admin action (ban, extend, revoke, force-expire) requires a valid 6-digit
+code from there on.
+
+The script is idempotent: re-running with the same email updates the password
+and `role: 'admin'`, never creating a duplicate.
+
 ## 7. Control plane — frontend
 
 ```bash
@@ -147,10 +166,17 @@ pm2 start ../deploy/ecosystem.config.cjs --env production
 pm2 save && pm2 startup     # survives reboots
 ```
 
-`deploy/ecosystem.config.cjs` sets `kill_timeout: 10000` to match the app's
-10-second graceful shutdown budget, and runs a single instance — the cron jobs
-(expiry, bandwidth, snapshots, health) must never run twice, so never scale it
-past `instances: 1`.
+`deploy/ecosystem.config.cjs` registers two isolated processes:
+
+- `stealth-vpn-backend` — the API in cluster mode (`instances: 'max'`,
+  one worker per CPU). **CRON_ENABLED=false** — never runs scheduled jobs.
+- `stealth-vpn-cron` — a single fork running every cron (expiry, bandwidth,
+  snapshots, health, purge, pending-invoice). **CRON_ENABLED=true**. Run
+  exactly one — two cron workers would double-send expiry emails, double the
+  bandwidth deltas, and double the SSH load on every node.
+
+`kill_timeout: 10000` on both matches the apps' 10-second graceful-shutdown
+budget.
 
 ## 10. Control plane — firewall
 
@@ -177,11 +203,13 @@ the API still runs, but mail will fail until fixed).
 
 1. Register a new account → verification email arrives.
 2. Add a device (basic plan) → Razorpay test checkout → config + QR delivered.
-3. `wg-quick up` the config on a client → traffic flows; bandwidth ticks up in
-   the dashboard after ≤5 minutes.
+3. `wg-quick up` the config on a client → traffic flows; bandwidth ticks up in the
+   dashboard after ≤5 minutes.
 4. Revoke the device → tunnel dies on the node.
 5. `pm2 restart stealth-vpn-backend` → API returns within seconds; 401s on the
    dashboard recover silently via refresh-token rotation.
+6. Log in as the seeded admin → `/admin` loads, TOTP prompts for a code →
+   revenue/bandwidth/alerts panels populate.
 
 ---
 

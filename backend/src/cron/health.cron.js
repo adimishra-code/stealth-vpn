@@ -15,10 +15,9 @@ const TLS_RENEW_WARNING_DAYS = 14;
 // 2-minute interval) would run two sweeps at once and double-fire alerts.
 let isRunning = false;
 
-// Writes the sweep outcome. lastOnlineAt is ONLY advanced by a successful
-// sweep — failed sweeps leave it untouched so the offline duration can be
-// measured and the >5-min alert can actually fire. lastHealthCheck records
-// that the sweep ran (diagnostics), success or failure.
+// Writes the sweep outcome. lastOnlineAt advances ONLY on success so the
+// offline duration is measurable and the >5-min alert can fire; lastHealthCheck
+// records that the sweep ran either way.
 function recordStatus(node, isOnline, now) {
   return ServerNode.findByIdAndUpdate(
     node._id,
@@ -28,18 +27,16 @@ function recordStatus(node, isOnline, now) {
   );
 }
 
-// Time since the node last confirmed online. For nodes that have never
-// succeeded (lastOnlineAt null — e.g. freshly seeded or just-deployed), the
-// seed/creation time is the reference so a dead-on-arrival node still alerts.
+// Time since the node last confirmed online; never-online nodes (lastOnlineAt
+// null) reference creation time so a dead-on-arrival node still alerts.
 function offlineSinceMs(node) {
   const reference = node.lastOnlineAt || node.createdAt || new Date();
   return new Date() - new Date(reference);
 }
 
-// INFRA-09: verify the REALITY fronting domain actually serves a valid TLS
-// cert for its own SNI. Every node's stealth depends on this domain — a dead
-// SNI or expired cert doesn't just look wrong, some networks start blocking
-// the domain entirely. Runs weekly (Sundays 03:00).
+// INFRA-09: verify the REALITY fronting domain serves a valid TLS cert for
+// its own SNI — a dead SNI or expired cert gets some networks blocking the
+// domain entirely. Runs weekly (Sundays 03:00).
 function checkFrontingTls(host, port = 443, timeoutMs = TLS_HANDSHAKE_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const socket = tls.connect({
@@ -94,7 +91,6 @@ function startWeeklyTlsCheckCron() {
         title: `Fronting domain TLS check failed: ${host}`,
         message: `${host}:${443} — ${err.message}`,
         details: { host, error: err.message },
-        err,
       });
       return;
     }
@@ -147,15 +143,36 @@ function startHealthCheckCron() {
         return;
       }
 
-      for (const node of nodes) {
+for (const node of nodes) {
         const now = new Date();
         try {
-          const ssh = await sshConnect(node);
-          const { stdout: xrayStatus } = await ssh.execCommand('systemctl is-active xray');
-          const { stdout: wgStatus } = await ssh.execCommand('sudo -n wg show wg0');
-
-          const isOnline = xrayStatus.trim() === 'active' && wgStatus.includes('wg0');
-          await recordStatus(node, isOnline, now);
+          let ssh;
+          try {
+            ssh = await sshConnect(node);
+          } catch (sshErr) {
+            // Could not connect via SSH — node is unreachable.
+            await recordStatus(node, false, now);
+            if (offlineSinceMs(node) > DOWN_ALERT_THRESHOLD_MS) {
+              logger.error('Node health check failing >5min (SSH unreachable)', { node: node.name, error: sshErr.message });
+              alertError({
+                source: 'cron.health',
+                title: `VPN node health check failing >5min: ${node.name}`,
+                message: `${node.name} (${node.ip}) — SSH unreachable since ${node.lastOnlineAt || 'never online'}`,
+                details: { node: node.name, ip: node.ip, lastOnlineAt: node.lastOnlineAt, error: sshErr.message },
+              });
+            }
+            continue;
+          }
+          const cmdTimeout = 10000;
+          const xrayCmd = ssh.execCommand('systemctl is-active xray');
+          const wgCmd = ssh.execCommand('sudo -n wg show wg0');
+          const [xrayResult, wgResult] = await Promise.all([
+            Promise.race([xrayCmd, new Promise((_, reject) => setTimeout(() => reject(new Error('SSH command timed out')), cmdTimeout))]),
+            Promise.race([wgCmd, new Promise((_, reject) => setTimeout(() => reject(new Error('SSH command timed out')), cmdTimeout))]),
+          ]);
+          const xrayStatus = xrayResult?.stdout?.trim();
+          const wgStatusText = wgResult?.stdout?.trim;
+          const isOnline = xrayStatus !== '' || wgStatusText !== '';
 
           if (!isOnline) {
             if (node.isOnline) {
@@ -195,4 +212,10 @@ function startHealthCheckCron() {
   });
 }
 
-module.exports = { startHealthCheckCron, startWeeklyTlsCheckCron, checkFrontingTls };
+module.exports = {
+  startHealthCheckCron,
+  startWeeklyTlsCheckCron,
+  checkFrontingTls,
+  recordStatus,
+  offlineSinceMs,
+};

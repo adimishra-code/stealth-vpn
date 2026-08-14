@@ -18,9 +18,7 @@ const TYPE_CLASS = {
 
 const AUTO_DISMISS_MS = 4000
 
-// Renders toasts pushed via the imperative `toast` helper (src/lib/toast.js).
-// Mount once (e.g. inside a page or the app shell); styles come from the
-// .toast* classes defined in index.css.
+// Renders toasts pushed via the imperative toast helper (src/lib/toast.js).
 export default function ToastHost() {
   const [toasts, setToasts] = useState([])
 

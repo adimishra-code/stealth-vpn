@@ -137,7 +137,6 @@ export default function Dashboard() {
     <div className="space-y-8">
       <ProtectionStatus devices={devices} plan={user?.plan} daysLeft={daysLeft} />
 
-      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {stats.map((s, i) => (
           <div
@@ -159,7 +158,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Add device */}
       <div className="flex items-center justify-between gap-4">
         <div>
           <h2 className="font-display text-lg font-semibold text-ink tracking-tight">Your devices</h2>
@@ -241,7 +239,6 @@ export default function Dashboard() {
 
       <BandwidthChart />
 
-      {/* Add device modal */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[4px] p-4 animate-fade-in" onClick={() => setShowAdd(false)}>
           <div
@@ -336,6 +333,7 @@ export default function Dashboard() {
                   config={result.config}
                   qrDataUrl={result.qrDataUrl}
                   vlessUri={result.vlessUri}
+                  vlessQrDataUrl={result.vlessQrDataUrl}
                   deviceName={deviceName}
                   onClose={() => {
                     setShowAdd(false)

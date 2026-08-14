@@ -2,6 +2,7 @@ import { useState } from 'react'
 import PropTypes from 'prop-types'
 import { QRCodeSVG } from 'qrcode.react'
 import { Copy, Check, Download, Radar, Zap, X, ShieldAlert } from 'lucide-react'
+import ConfirmModal from './ConfirmModal'
 
 const wgSteps = [
   { os: 'Windows', cmd: 'Download the .conf file → Open WireGuard → Import tunnel from file' },
@@ -17,12 +18,19 @@ const stealthSteps = [
   { os: 'Desktop', cmd: 'Use v2rayN / Nekoray with the copied URI — TCP 443, cloaked as TLS 1.3' },
 ]
 
-export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose, vlessUri }) {
+export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose, vlessUri, vlessQrDataUrl }) {
   const [copied, setCopied] = useState(false)
   const [vlessCopied, setVlessCopied] = useState(false)
-  // Presentational only — the device mode was fixed at order time. This just
-  // picks which delivery tab is emphasized first.
+  const [confirmClose, setConfirmClose] = useState(false)
+  // Presentational only — mode was fixed at order time; picks the emphasized tab.
   const [tab, setTab] = useState(vlessUri ? 'stealth' : 'wireguard')
+
+  const handleClose = () => {
+    // The config embeds the private key — warn before discarding it. The
+    // dashboard's QR button stays as a recovery path.
+    if (copied || vlessCopied) return onClose()
+    setConfirmClose(true)
+  }
 
   const download = () => {
     const blob = new Blob([config], { type: 'text/plain' })
@@ -56,7 +64,7 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[4px] p-4 animate-fade-in" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[4px] p-4 animate-fade-in" onClick={handleClose}>
       <div
         className="bg-surface border border-line-strong rounded-2xl shadow-card max-w-lg w-full max-h-[90vh] overflow-y-auto animate-pop"
         onClick={(e) => e.stopPropagation()}
@@ -68,7 +76,7 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
               <p className="text-xs text-faint mt-0.5 font-mono">{deviceName || 'device'}</p>
             </div>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-1.5 rounded-lg text-faint hover:text-ink hover:bg-raised transition-colors duration-fast"
               aria-label="Close"
             >
@@ -76,7 +84,6 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
             </button>
           </div>
 
-          {/* Mode pill — sliding indicator, accent on the active side */}
           <div className="relative flex items-center gap-1 rounded-lg bg-void/70 border border-line p-1 mb-6">
             <span
               aria-hidden="true"
@@ -107,7 +114,7 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
             </button>
           </div>
 
-          {/* ── Stealth tab ── */}
+          {/* Stealth tab */}
           {tab === 'stealth' && vlessUri && (
             <div className="animate-fade-in" key="stealth">
               <p className="text-xs text-faint mb-3 leading-relaxed">
@@ -129,7 +136,6 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
                   aria-label={vlessCopied ? 'Copied' : 'Copy URI'}
                 >
                   {vlessCopied ? <Check size={16} /> : <Copy size={16} />}
-                  {/* Label slides in on hover */}
                   <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md bg-raised border border-line px-2 py-1 font-sans text-[11px] text-ink shadow-tooltip opacity-0 translate-x-1 transition-all duration-fast group-hover:opacity-100 group-hover:translate-x-0">
                     {vlessCopied ? 'Copied' : 'Copy URI'}
                   </span>
@@ -144,10 +150,18 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
                   </div>
                 ))}
               </div>
+              {vlessQrDataUrl && (
+                <div className="flex flex-col items-center mb-2">
+                  <div className="bg-white rounded-lg p-4">
+                    <QRCodeSVG value={vlessQrDataUrl} size={200} />
+                  </div>
+                  <p className="text-xs text-faint mt-2.5">Scan with v2rayN / V2RayNG (mobile)</p>
+                </div>
+              )}
             </div>
           )}
 
-          {/* ── WireGuard tab ── */}
+          {/* WireGuard tab */}
           {tab === 'wireguard' && (
             <div className="animate-fade-in" key="wg">
               <div className="grid grid-cols-2 gap-2 mb-5">
@@ -200,6 +214,17 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
           </p>
         </div>
       </div>
+
+      {confirmClose && (
+        <ConfirmModal
+          title="Discard config?"
+          message="You haven't copied or downloaded this config yet. Closing now means the only way to recover it is the device's QR code button on the dashboard. Sure?"
+          confirmLabel="Discard"
+          danger
+          onConfirm={onClose}
+          onClose={() => setConfirmClose(false)}
+        />
+      )}
     </div>
   )
 }
@@ -210,4 +235,5 @@ ConfigDelivery.propTypes = {
   deviceName: PropTypes.string.isRequired,
   onClose: PropTypes.func.isRequired,
   vlessUri: PropTypes.string,
+  vlessQrDataUrl: PropTypes.string,
 }

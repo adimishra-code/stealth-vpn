@@ -1,15 +1,11 @@
 /**
- * Alerting layer (Sentry-equivalent, self-hosted):
- *   - every event is logged locally via winston (baseline)
- *   - external dispatch: email (ALERT_EMAIL_TO), webhook (ALERT_WEBHOOK_URL,
- *     Slack/Discord-style JSON POST), Sentry (optional, lazy-loaded)
- *   - per-key cooldown (ALERT_COOLDOWN_MINUTES): the same error signature is
- *     delivered at most once per window, so a flapping failure produces one
- *     alert instead of an alert storm. State is in-memory — a restart resets
- *     the windows, which is fine (worst case: one duplicate alert).
+ * Alerting layer (Sentry-equivalent, self-hosted): every event logs via
+ * winston; external dispatch goes to email (ALERT_EMAIL_TO), webhook
+ * (ALERT_WEBHOOK_URL), and/or Sentry (optional, lazy-loaded). Per-key
+ * cooldown (ALERT_COOLDOWN_MINUTES) stops alert storms; state is in-memory,
+ * so a restart can duplicate at most one alert.
  *
- * Alerting must NEVER throw into the caller — every channel failure is logged
- * and swallowed.
+ * Must NEVER throw into the caller — every channel failure is logged.
  */
 const env = require('../config/env');
 const logger = require('../config/logger');

@@ -1,6 +1,5 @@
-// Injects the Razorpay checkout script once, then resolves. Rejects if the
-// script fails to load so callers can surface an error instead of a silent
-// dead button.
+// Injects the Razorpay checkout script once; rejects on load failure so
+// callers can surface an error instead of a silent dead button.
 export async function loadRazorpay() {
   if (typeof window.Razorpay !== 'undefined') return
   await new Promise((resolve, reject) => {

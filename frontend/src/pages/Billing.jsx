@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { useSelector } from 'react-redux'
-import { selectUser } from '../features/auth/authSlice'
-import { useListInvoicesQuery, useCreateOrderMutation, useCreateStripeSessionMutation } from '../features/payment/paymentApi'
+import { useSelector, useDispatch } from 'react-redux'
+import { selectUser, setUser } from '../features/auth/authSlice'
+import { useListInvoicesQuery, useCreateOrderMutation, useCreateStripeSessionMutation, useVerifyPaymentMutation } from '../features/payment/paymentApi'
 import { Check, Loader2 } from 'lucide-react'
 import { loadRazorpay } from '../utils/razorpay'
 import { toast } from '../lib/toast'
+import ConfigDelivery from '../components/ConfigDelivery'
 
 const plans = [
   { name: 'basic', inr: '₹99', usd: '$1.99', devices: 1, speed: '500 GB/mo', highlight: false },
@@ -22,13 +23,51 @@ const statusStyles = {
 
 export default function Billing() {
   const user = useSelector(selectUser)
-  const { data: invoicesData, isLoading: invoicesLoading, isError: invoicesError, refetch: refetchInvoices } = useListInvoicesQuery()
+  const dispatch = useDispatch()
+  const { data: invoicesData, isLoading: invoicesLoading, isError: invoicesError, refetch } = useListInvoicesQuery()
   const [createOrder] = useCreateOrderMutation()
   const [createStripeSession] = useCreateStripeSessionMutation()
+  const [verifyPayment, { isLoading: verifying }] = useVerifyPaymentMutation()
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(null)
+  const [result, setResult] = useState(null)
+  const [pendingPlan, setPendingPlan] = useState(null)
 
   const invoices = invoicesData?.invoices || []
+
+  const handleRazorpaySuccess = async (plan, paymentResponse) => {
+    setPendingPlan(plan)
+    try {
+      const verify = await verifyPayment({
+        paymentId: paymentResponse.razorpay_payment_id,
+        orderId: paymentResponse.razorpay_order_id,
+        signature: paymentResponse.razorpay_signature,
+        plan,
+        serverNode: 'auto',
+        deviceName: 'billing-sub',
+        mode: 'stealth',
+      }).unwrap()
+      setResult(verify)
+      dispatch(setUser({ ...user, plan: verify.device?.plan || plan }))
+      toast.success('Payment received — your VPN is ready')
+    } catch (err) {
+      toast.error(err?.data?.error ?? 'Payment verification failed. The webhook will retry.')
+    } finally {
+      setPendingPlan(null)
+    }
+  }
+
+  useEffect(() => {
+    const success = new URLSearchParams(window.location.search).get('success')
+    if (success) {
+      const lastInvoice = invoicesData?.invoices?.[invoicesData?.invoices.length - 1]
+      if (lastInvoice && lastInvoice.gateway === 'stripe' && lastInvoice.status === 'paid') {
+        toast.success('Payment verified — your VPN is ready')
+      } else {
+        toast.error('Payment verified but invoice not found')
+      }
+    }
+  }, [invoicesData, user?.plan])
 
   const handleSubscribe = async (plan, gateway) => {
     setError(null)
@@ -49,10 +88,8 @@ export default function Billing() {
           name: 'StealthVPN',
           description: `${plan.toUpperCase()} plan`,
           order_id: res.orderId,
-          handler: () => window.location.reload(),
+          handler: (paymentResponse) => handleRazorpaySuccess(plan, paymentResponse),
           modal: {
-            // Checkout dismissed without paying — clear the busy state and
-            // stay silent: the user chose to cancel, not to fail.
             ondismiss: () => setBusy(null),
           },
           theme: { color: '#2dd4bf' },
@@ -96,7 +133,6 @@ export default function Billing() {
         </div>
       )}
 
-      {/* Plans */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl items-start">
         {plans.map((p, i) => (
           <div
@@ -159,7 +195,6 @@ export default function Billing() {
         ))}
       </div>
 
-      {/* Invoices */}
       <div className="card">
         <h2 className="font-display text-lg font-semibold text-ink mb-4">Invoice history</h2>
         {invoicesLoading ? (
@@ -169,7 +204,7 @@ export default function Billing() {
         ) : invoicesError ? (
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm text-danger">Failed to load invoices.</p>
-            <button onClick={refetchInvoices} className="btn-secondary text-xs shrink-0">Retry</button>
+            <button onClick={refetch} className="btn-secondary text-xs shrink-0">Retry</button>
           </div>
         ) : invoices.length === 0 ? (
           <p className="text-sm text-faint">No invoices yet.</p>
@@ -205,6 +240,27 @@ export default function Billing() {
           </div>
         )}
       </div>
+
+      {verifying && pendingPlan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[4px] p-4 animate-fade-in">
+          <div className="bg-surface border border-line-strong rounded-2xl shadow-card max-w-sm w-full p-8 text-center">
+            <Loader2 size={32} className="text-accent-400 animate-spin mx-auto mb-4" strokeWidth={1.75} />
+            <p className="text-sm text-ink font-medium">Provisioning your VPN…</p>
+            <p className="text-xs text-faint mt-1.5">Generating keys and configuring the node.</p>
+          </div>
+        </div>
+      )}
+
+      {result && (
+        <ConfigDelivery
+          config={result.config}
+          qrDataUrl={result.qrDataUrl}
+          vlessUri={result.vlessUri}
+          vlessQrDataUrl={result.vlessQrDataUrl}
+          deviceName={result.device?.deviceName || pendingPlan || 'device'}
+          onClose={() => setResult(null)}
+        />
+      )}
     </div>
   )
 }

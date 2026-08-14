@@ -16,10 +16,8 @@ const registerLimiter = rateLimit({
   message: { error: 'Too many registration attempts. Try again in 1 hour.' },
 });
 
-// Keyed per IP+email so one attacker cannot exhaust a victim's quota either
-// by hammering their address (shared IP budget) or by hopping IPs (per-email
-// budget). The IP prefix is mandatory: express-rate-limit v7 never trusts a
-// bare custom key without the IP for exactly this reason.
+// Keyed per IP+email: neither IP hopping nor hammering one IP can exhaust
+// the other's budget. The IP prefix is mandatory in express-rate-limit v7.
 const forgotPasswordLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
@@ -72,6 +70,16 @@ const apiLimiter = rateLimit({
   message: { error: 'Too many requests. Slow down.' },
 });
 
+// ErrorBoundary telemetry: generous but bounded so a misbehaving client
+// cannot hammer the API or make its own telemetry spam 5xx alerting.
+const clientErrorLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many error reports.' },
+});
+
 module.exports = {
   authLimiter,
   registerLimiter,
@@ -81,4 +89,5 @@ module.exports = {
   deviceLimiter,
   adminLimiter,
   apiLimiter,
+  clientErrorLimiter,
 };

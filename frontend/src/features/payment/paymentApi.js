@@ -7,12 +7,14 @@ export const paymentApi = api.injectEndpoints({
     }),
     verifyPayment: build.mutation({
       query: (body) => ({ url: '/payment/verify', method: 'POST', body }),
+      invalidatesTags: ['Devices', 'Invoices', 'Users'],
     }),
     createStripeSession: build.mutation({
       query: (body) => ({ url: '/payment/stripe/session', method: 'POST', body }),
     }),
     confirmStripe: build.mutation({
       query: (body) => ({ url: '/payment/stripe/confirm', method: 'POST', body }),
+      invalidatesTags: ['Devices', 'Invoices', 'Users'],
     }),
     listInvoices: build.query({
       query: () => '/payment/invoices',

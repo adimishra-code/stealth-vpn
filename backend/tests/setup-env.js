@@ -41,3 +41,4 @@ process.env.EMAIL_FROM = 'noreply@stealthvpn.com';
 process.env.CRON_ENABLED = 'false';
 process.env.TRUST_PROXY = '1';
 process.env.QUOTA_ENFORCE = 'true';
+process.env.CSRF_SECRET = 'd'.repeat(64);

@@ -7,9 +7,8 @@ const logger = require('../config/logger');
 const { alertCronFailure, alertError } = require('../services/alert.service');
 
 function startExpiryCron() {
-  // Overlap guard: if a pass is still running when the next tick fires (slow
-  // SSH revocations against an unreachable node), skip the new tick instead
-  // of running two passes concurrently — they would double-send warnings.
+  // Overlap guard: skip a tick if the previous pass is still running (slow
+  // SSH revocations) — two passes would double-send warnings.
   let running = false;
   cron.schedule('0 2 * * *', async () => {
     if (running) {
@@ -21,8 +20,8 @@ function startExpiryCron() {
       await runExpiryPass();
     } catch (err) {
       // node-cron does not handle a rejected callback — without this the
-      // process exits. Alert operators: failed expiry revocations leave paid
-      // users with live tunnels.
+      // process exits. Alert operators: failed revocations leave paid users
+      // with live tunnels.
       logger.error('Expiry cron failed', { error: err.message, stack: err.stack });
       alertCronFailure('expiry', err);
     } finally {
@@ -69,7 +68,7 @@ async function runExpiryPass() {
 
     for (const device of devices) {
       try {
-        await provisioning.revokeDevice(device);
+        await provisioning.revokeDevice(device, { status: 'expired' });
       } catch (err) {
         // Leave the device active so the next pass retries. Marking it inactive
         // here would hide a peer that is still live and tunnelling on the node.

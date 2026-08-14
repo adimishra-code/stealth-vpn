@@ -2,7 +2,7 @@ const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const { authenticator } = require('otplib');
 const { signAccessToken, signRefreshToken, verifyRefreshToken, hashRefreshToken } = require('../utils/jwt');
-const { randomToken, hashToken, encryptPrivateKey, decryptPrivateKey } = require('../utils/crypto');
+const { randomToken, hashToken, encryptPrivateKey, decryptPrivateKey, CRYPTO_PURPOSES } = require('../utils/crypto');
 const { setRefreshCookie, clearRefreshCookie, getRefreshCookie } = require('../utils/cookies');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
 const emailService = require('../services/email.service');
@@ -21,7 +21,7 @@ function verifyTotpCode(user, code, allowUnenabled = false) {
   if (!user.totpSecretEnc) return false;
   if (!user.totpEnabled && !allowUnenabled) return false;
   try {
-    const secret = decryptPrivateKey(user.totpSecretEnc);
+    const secret = decryptPrivateKey(user.totpSecretEnc, CRYPTO_PURPOSES.totp);
     return authenticator.verify({ token: code, secret });
   } catch (err) {
     logger.error('TOTP secret decrypt failed', { userId: user._id.toString(), error: err.message });
@@ -48,13 +48,15 @@ exports.register = asyncHandler(async (req, res) => {
 
   const existing = await User.findOne({ email });
   if (existing) {
-    // Anti-enumeration: a 409 would confirm the email is taken. Return the
-    // same 201 instead, and burn the same bcrypt cost the real path pays so
-    // the two branches are indistinguishable by timing too.
+    // Anti-enumeration: same 201 + bcrypt burn, so the two branches are
+    // indistinguishable by response or timing.
     await bcrypt.hash(password, 12);
     logger.warn('Register attempt for existing email', { email });
+    // API-01: identical response shape to the success path (userId: null) —
+    // a missing vs. null field would fingerprint enumerators.
     return res.status(201).json({
       message: 'Account created. Check your email to verify.',
+      userId: null,
     });
   }
 
@@ -69,10 +71,8 @@ exports.register = asyncHandler(async (req, res) => {
   });
   await user.save();
 
-  // Email delivery must never block account creation — a slow or dead SMTP
-  // server would otherwise hang the request (and the client's button). Fire
-  // it off and respond; failures are logged and the user can request a new
-  // link later.
+  // Email delivery never blocks account creation — a slow or dead SMTP would
+  // hang the request; failures are logged and the user can request a new link.
   emailService.sendVerifyEmail(user, verifyToken).catch((err) => {
     logger.warn('Failed to send verify email', { error: err.message });
   });
@@ -113,17 +113,15 @@ exports.login = asyncHandler(async (req, res) => {
     throw new ApiError(401, 'Invalid credentials');
   }
 
-  // Password is checked FIRST. Verification/suspension 403s only happen after
-  // a correct password — learning an account's verification state then
-  // requires already knowing its password.
+  // Password is checked FIRST — learning an account's verification/suspension
+  // state already requires knowing its password.
   const match = await user.comparePassword(password);
   if (!match) {
     throw new ApiError(401, 'Invalid credentials');
   }
 
-  // ADMIN-01: TOTP challenge for admin accounts — second factor sits between
-  // "password correct" and "session issued". Missing or wrong codes are
-  // indistinguishable 401s.
+  // ADMIN-01: TOTP challenge for admin accounts — the second factor sits
+  // between "password correct" and "session issued".
   if (user.role === 'admin' && user.totpEnabled) {
     const { totpCode } = req.body;
     if (!totpCode || !verifyTotpCode(user, totpCode)) {
@@ -131,11 +129,12 @@ exports.login = asyncHandler(async (req, res) => {
     }
   }
 
-  if (!user.emailVerified) {
-    throw new ApiError(403, 'Please verify your email first');
-  }
-  if (!user.isActive) {
-    throw new ApiError(403, 'Account suspended');
+  if (!user.emailVerified || !user.isActive) {
+    // Anti-enumeration + timing parity with wrong-password: a correct
+    // password against an unverified or suspended account must look
+    // identical to a wrong-password attempt (same 401, same message).
+    // The user can re-request verification via "Forgot password" if stuck.
+    throw new ApiError(401, 'Invalid credentials');
   }
 
   const accessToken = signAccessToken(user);
@@ -177,9 +176,8 @@ exports.refresh = asyncHandler(async (req, res) => {
 
   const presentedHash = hashRefreshToken(token);
 
-  // Atomically consume the presented token. If it matched zero documents it was
-  // already rotated away — that means either a replay or a stolen token, so
-  // every session for the account is dropped.
+  // Atomically consume the presented token. Zero matches = already rotated
+  // away — replay or theft — so every session for the account is dropped.
   const user = await User.findOneAndUpdate(
     { _id: decoded.sub, refreshTokens: presentedHash },
     { $pull: { refreshTokens: presentedHash } },
@@ -200,14 +198,10 @@ exports.refresh = asyncHandler(async (req, res) => {
 
   const newAccessToken = signAccessToken(user);
   const newRefreshToken = signRefreshToken(user);
-  // Step 2 of the rotation: register the fresh token hash. The pull (above)
-  // and this push are deliberately two separate writes — there is no way to
-  // make both atomic in Mongo, but the order is what keeps it safe:
-  //   * a crash between pull and push leaves the account logged out on this
-  //     session (the old token is already consumed). Safe failure mode —
-  //     the user simply signs in again; no session is ever double-active.
-  //   * a replay of the old token in that window finds zero documents and
-  //     triggers the full-session wipeout instead of succeeding.
+  // Step 2 of rotation: the pull (above) and this push are deliberately two
+  // writes — a crash between them leaves this session logged out (safe), and
+  // a replay of the old token in that window finds zero docs and wipes all
+  // sessions instead of succeeding.
   await User.updateOne(
     { _id: user._id },
     { $push: { refreshTokens: { $each: [hashRefreshToken(newRefreshToken)], $slice: -MAX_ACTIVE_SESSIONS } } }
@@ -234,9 +228,8 @@ exports.logout = asyncHandler(async (req, res) => {
   res.json({ message: 'Logged out' });
 });
 
-// SESSION-01 — log out every device at once. Wipes all refresh tokens so no
-// session can rotate again; the current access token stays valid only until
-// its short expiry, so the user is effectively signed out everywhere.
+// SESSION-01 — log out every device: wipes all refresh tokens so no session
+// can rotate again; the access token dies at its short expiry.
 exports.logoutAll = asyncHandler(async (req, res) => {
   await User.updateOne({ _id: req.user._id }, { $set: { refreshTokens: [] } });
   clearRefreshCookie(res);
@@ -245,9 +238,8 @@ exports.logoutAll = asyncHandler(async (req, res) => {
 });
 
 // ADMIN-01 — generate a fresh TOTP secret for an admin account. Returns the
-// plaintext secret exactly once (for the authenticator app + QR); from then
-// on only the encrypted copy exists. totpEnabled stays false until the code
-// round-trips.
+// plaintext exactly once (for the authenticator app + QR); only the encrypted
+// copy remains, and totpEnabled stays false until the code round-trips.
 exports.totpSetup = asyncHandler(async (req, res) => {
   if (req.user.role !== 'admin') {
     throw new ApiError(403, 'Two-factor authentication is for admin accounts');
@@ -257,7 +249,7 @@ exports.totpSetup = asyncHandler(async (req, res) => {
   const otpauth = authenticator.keyuri(req.user.email, 'StealthVPN', secret);
   await User.updateOne(
     { _id: req.user._id },
-    { $set: { totpSecretEnc: encryptPrivateKey(secret), totpEnabled: false } }
+    { $set: { totpSecretEnc: encryptPrivateKey(secret, CRYPTO_PURPOSES.totp), totpEnabled: false } }
   );
 
   logger.info('TOTP secret generated', { userId: req.user._id.toString() });
@@ -304,9 +296,8 @@ exports.forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
   const user = await User.findOne({ email });
   if (!user) {
-    // Constant-time branch: burn the same token generation the real path
-    // pays so account existence is not observable through response timing.
-    // (Rate-limited per IP+email by forgotPasswordLimiter.)
+    // Constant-time branch: burn the same token generation the real path pays
+    // so account existence is not observable through response timing.
     randomToken(32);
     res.json({ message: 'If the email exists, a reset link has been sent.' });
     return;
@@ -328,6 +319,28 @@ exports.forgotPassword = asyncHandler(async (req, res) => {
   });
 
   res.json({ message: 'If the email exists, a reset link has been sent.' });
+});
+
+exports.resendVerify = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  const user = await User.findOne({ email });
+  if (!user || user.emailVerified) {
+    // Same anti-enumeration shape as forgot-password: tell the caller a link
+    // is on its way regardless of whether the email exists/is verified.
+    randomToken(32);
+    return res.json({ message: 'If the email exists and is unverified, a new link has been sent.' });
+  }
+
+  const verifyToken = randomToken(32);
+  user.emailVerifyToken = hashToken(verifyToken);
+  user.emailVerifyExpires = new Date(Date.now() + VERIFY_TOKEN_TTL_HOURS * 3600 * 1000);
+  await user.save();
+
+  emailService.sendVerifyEmail(user, verifyToken).catch((err) => {
+    logger.warn('Failed to send resend-verify email', { error: err.message });
+  });
+
+  res.json({ message: 'If the email exists and is unverified, a new link has been sent.' });
 });
 
 exports.resetPassword = asyncHandler(async (req, res) => {

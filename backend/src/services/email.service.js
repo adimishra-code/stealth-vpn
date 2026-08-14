@@ -127,6 +127,40 @@ async function sendPaymentFailedEmail(user) {
   });
 }
 
+// Sent right after provisioning. The .conf is inlined (not attached) so the
+// email renders on every client; recipients using Thunderbird/Outlook see
+// the config as a monospace block, mobile clients get the same. The VLESS
+// URI sits in its own clickable section for v2rayN/V2RayNG import.
+async function sendConfigEmail(user, device, config, vlessUri) {
+  const subject = `StealthVPN — ${device.deviceName} ready`;
+  const html = wrapTemplate(`
+    <h1>Your VPN is ready</h1>
+    <p>The WireGuard config and Reality URI for <strong>${device.deviceName}</strong>
+       (${device.serverNode} · ${device.assignedIP}) are below. Save the .conf now —
+       it contains your private key and is shown in-app only once.</p>
+
+    <h2 style="font-size:16px;margin-top:24px;">WireGuard config (${device.mode})</h2>
+    <pre style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:8px;overflow-x:auto;white-space:pre;">${config.replace(/[<>&]/g, (c) => ({ '<': '<', '>': '>', '&': '&' }[c]))}</pre>
+    <p style="font-size:13px;color:#64748b;">
+      Import on desktop: save the block above as <code>stealth.conf</code> and
+      run <code>wg-quick up /path/to/stealth.conf</code>. Mobile: open the
+      dashboard on the same device, tap "QR code" on this device, and scan.
+    </p>
+
+    <h2 style="font-size:16px;margin-top:24px;">Stealth Reality (VLESS) URI</h2>
+    <p>For v2rayN / V2RayNG / Shadowrocket on restricted networks:</p>
+    <pre style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;background:#0f172a;color:#e2e8f0;padding:14px;border-radius:8px;overflow-x:auto;white-space:pre;word-break:break-all;">${vlessUri.replace(/[<>&]/g, (c) => ({ '<': '<', '>': '>', '&': '&' }[c]))}</pre>
+  `, subject);
+
+  await transporter.sendMail({
+    from: env.EMAIL_FROM,
+    to: user.email,
+    subject,
+    html,
+  });
+  logger.info('Config email sent', { userId: user._id.toString(), deviceId: device._id.toString() });
+}
+
 module.exports = {
   transporter,
   sendVerifyEmail,
@@ -134,4 +168,5 @@ module.exports = {
   sendRenewalWarningEmail,
   sendExpiredEmail,
   sendPaymentFailedEmail,
+  sendConfigEmail,
 };

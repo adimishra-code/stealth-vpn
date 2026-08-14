@@ -7,7 +7,6 @@ export default function ServerStatus({ server }) {
 
   return (
     <div className="card card-hover relative overflow-hidden">
-      {/* Left status bar — green when online, red when down */}
       <span
         aria-hidden="true"
         className={`absolute inset-y-0 left-0 w-[3px] ${online ? 'bg-ok shadow-dot' : 'bg-danger'}`}

@@ -28,7 +28,6 @@ export default function Login() {
   const navigate = useNavigate()
   const token = useSelector(selectToken)
 
-  // Already signed in — the login page has nothing to offer.
   if (token) return <Navigate to="/dashboard" replace />
 
   const handleSubmit = async (e) => {
@@ -43,8 +42,7 @@ export default function Login() {
     } catch (err) {
       const msg = err.data?.error || 'Login failed'
       setError(msg)
-      // The server only reveals 2FA is active after a correct password — the
-      // challenge appears exactly when it is needed.
+      // The server reveals 2FA exists only after a correct password.
       if (msg === 'Two-factor code required') setNeedTotp(true)
       setShake((s) => s + 1)
     }

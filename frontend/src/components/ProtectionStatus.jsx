@@ -2,8 +2,6 @@ import { Link } from 'react-router'
 import PropTypes from 'prop-types'
 import { ShieldCheck, ShieldAlert, ShieldOff, Zap, EyeOff } from 'lucide-react'
 
-// The single question a VPN dashboard must answer above the fold:
-// am I protected right now? Everything else is secondary.
 export default function ProtectionStatus({ devices, plan, daysLeft }) {
   const active = devices.filter((d) => d.isActive)
   const hasPlan = plan && plan !== 'free'
@@ -54,9 +52,7 @@ export default function ProtectionStatus({ devices, plan, daysLeft }) {
     <section className="card overflow-hidden animate-fade-up">
       <div className="flex flex-col sm:flex-row sm:items-center gap-5">
         <div className="relative shrink-0">
-          {/* Signature: "The Latch" — when protection engages, a ring of
-              light contracts into the shield like a lock seating. One-shot,
-              plays only on the transition into the green state. */}
+          {/* "The Latch": a light ring contracts into the shield when protection engages */}
           {t.latch && (
             <span
               aria-hidden="true"

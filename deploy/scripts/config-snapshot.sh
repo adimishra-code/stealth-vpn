@@ -1,19 +1,15 @@
 #!/bin/bash
 # Config snapshot + drift detection for VPN nodes.
 #
-# What it does per node:
-#   * copies the identity/config files into
-#     /opt/stealthvpn/snapshots/<node>/<date>/
-#   * writes a SHA-256 manifest, then diffs it against the previous day's
-#     manifest (a change without a deploy = investigate, possibly an intruder).
+# Per node: copies identity/config files to /opt/stealthvpn/snapshots/<node>/<date>/,
+# writes a SHA-256 manifest, diffs it against the previous day's (a change
+# without a deploy = investigate, possibly an intruder).
 #
 # Usage:
 #   ./deploy/scripts/config-snapshot.sh [node-ip ...]
 #   (no args: reads NODE_MUMBAI_IP / NODE_FRANKFURT_IP from backend/.env)
 #
-# Reading /etc/wireguard (mode 600) and /etc/xray requires root — this is a
-# human-run ops script, so it defaults to SSH_USER=root (same caveat as
-# killswitch.sh).
+# /etc/wireguard (mode 600) + /etc/xray need root — defaults to SSH_USER=root (same caveat as killswitch.sh).
 
 set -euo pipefail
 
@@ -61,7 +57,14 @@ for ip in "${NODES[@]}"; do
   echo "==> ${ip}: fetching ${#FILES[@]} config files"
   for f in "${FILES[@]}"; do
     name="$(basename "${f}").txt"
-    ssh "${SSH_OPTS[@]}" "${SSH_USER}@${ip}" "cat ${f} 2>/dev/null || true" > "${DEST}/${name}"
+    # Missing must be visible: empty vs vanished used to be indistinguishable,
+    # so deletions were silent — store explicit "MISSING" markers.
+    if content="$(ssh "${SSH_OPTS[@]}" "${SSH_USER}@${ip}" "cat ${f} 2>/dev/null")"; then
+      printf '%s\n' "${content}" > "${DEST}/${name}"
+    else
+      echo "!! ${ip}: ${f} is MISSING on the node" >&2
+      echo "# MISSING on ${TODAY}" > "${DEST}/${name}"
+    fi
   done
 
   # Manifest + drift check against the previous snapshot day.
@@ -80,6 +83,9 @@ for ip in "${NODES[@]}"; do
   else
     echo "==> ${ip}: baseline snapshot (${TODAY})"
   fi
+
+  # Retention: 30 days — a non-rotating snapshot fills the disk and slows drift searches.
+  find "${SNAP_ROOT}/${ip}" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
 done
 
 echo "Snapshots: ${SNAP_ROOT}"

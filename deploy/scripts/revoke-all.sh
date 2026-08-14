@@ -1,22 +1,16 @@
 #!/bin/bash
-# Emergency — revoke EVERY WireGuard peer on every node, immediately.
-# Burn-the-tunnel switch for: compromised control plane, suspected mass
-# exfiltration, node compromise, legal request, lost key material.
+# Emergency — revoke EVERY WireGuard peer on every node (burn-the-tunnel
+# switch: compromised control plane, mass exfiltration, lost keys).
 #
 # Usage:
 #   ./deploy/scripts/revoke-all.sh [node-ip ...]
 #   (no args: reads NODE_MUMBAI_IP / NODE_FRANKFURT_IP from backend/.env)
 #
-# Connects as the non-root operator user (NODE_SSH_USER, default stealthnode —
-# sudoers whitelist covers wg show/set/save). For a root-access emergency use
-# SSH_USER=root ./revoke-all.sh — but the app's automation user never needs
-# root, so prefer the default.
+# Connects as NODE_SSH_USER (default stealthnode — sudoers whitelist covers
+# wg show/set/save); SSH_USER=root only for root-required emergencies.
 #
-# What it does per node:
-#   1. dumps `wg show wg0` and removes every peer
-#   2. `wg-quick save wg0` so the wipe survives a reboot
-# Xray users are NOT touched here (they cannot carry traffic alone — wg0 is
-# the only transit); see docs/INCIDENT_RESPONSE.md if you need those too.
+# Per node: dump `wg show wg0`, remove every peer, `wg-quick save wg0` so the
+# wipe survives reboot. Xray users untouched (wg0 is the only transit).
 
 set -euo pipefail
 

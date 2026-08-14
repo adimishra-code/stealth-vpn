@@ -1,12 +1,12 @@
 import { createSlice } from '@reduxjs/toolkit'
 
-// sessionStorage: the token dies with the tab, so it can't persist into
-// shared/same-machine sessions the way localStorage would (XSS exfil and
-// localStorage-theft tools both read it; a fresh browser session should
-// require a real login again anyway).
+// The access token lives only in Redux memory — nothing is written to
+// sessionStorage/localStorage (XSS-readable, survives into shared sessions).
+// A reload requires fresh login or the silent httpOnly refresh-cookie
+// handshake (/auth/refresh), which is out of JS reach.
 const initialState = {
   user: null,
-  accessToken: sessionStorage.getItem('sv_token'),
+  accessToken: null,
   loading: false,
 }
 
@@ -18,7 +18,6 @@ const authSlice = createSlice({
       const { accessToken, user } = action.payload
       state.accessToken = accessToken
       state.user = user ?? state.user
-      if (accessToken) sessionStorage.setItem('sv_token', accessToken)
     },
     setUser: (state, action) => {
       state.user = action.payload
@@ -26,7 +25,6 @@ const authSlice = createSlice({
     clearCredentials: (state) => {
       state.user = null
       state.accessToken = null
-      sessionStorage.removeItem('sv_token')
     },
   },
 })

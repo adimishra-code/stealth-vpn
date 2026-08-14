@@ -66,8 +66,6 @@ export default function Admin() {
   const [confirmAction, setConfirmAction] = useState(null)
   const [confirmLoading, setConfirmLoading] = useState(false)
 
-  // Search inputs update on every keystroke, but the backend queries only fire
-  // after the input settles for 300ms.
   const debouncedSearch = useDebounce(search, 300)
   const debouncedDeviceSearch = useDebounce(deviceSearch, 300)
 
@@ -269,7 +267,6 @@ export default function Admin() {
         </div>
       )}
 
-      {/* Revenue */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card animate-fade-up">
           <h2 className="font-display text-lg font-semibold text-ink mb-1">Revenue (last 30 days)</h2>
@@ -293,7 +290,7 @@ export default function Admin() {
                     border: '1px solid #38383f',
                     borderRadius: 8,
                     boxShadow: '0 1px 2px 0 rgba(0,0,0,0.45), 0 10px 30px -14px rgba(0,0,0,0.7)',
-                    fontFamily: '"JetBrains Mono", monospace',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                     fontSize: 12,
                     color: '#f4f4f5',
                   }}
@@ -375,7 +372,6 @@ export default function Admin() {
         </div>
       </div>
 
-      {/* Users */}
       <div className="card animate-fade-up" style={{ animationDelay: '240ms' }}>
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <h2 className="font-display text-lg font-semibold text-ink">Users</h2>
@@ -427,7 +423,6 @@ export default function Admin() {
                   <td className="py-3.5 pr-4 text-faint">{new Date(u.createdAt).toLocaleDateString()}</td>
                   <td className="py-3.5">
                     <div className="flex items-center gap-2">
-                      {/* Icon action with tooltip */}
                       <button
                         onClick={() => (u.isActive ? handleBan(u._id, u.email) : handleUnban(u._id, u.email))}
                         disabled={banning || updating}
@@ -509,7 +504,6 @@ export default function Admin() {
         )}
       </div>
 
-      {/* Devices */}
       <div className="card animate-fade-up" style={{ animationDelay: '320ms' }}>
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <h2 className="font-display text-lg font-semibold text-ink">Devices</h2>
@@ -640,7 +634,6 @@ export default function Admin() {
         )}
       </div>
 
-      {/* Audit log */}
       <div className="card animate-fade-up">
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <h2 className="font-display text-lg font-semibold text-ink">Audit log</h2>

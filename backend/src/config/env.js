@@ -5,33 +5,37 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(5000),
   FRONTEND_URL: z.string().url(),
 
-  // Set to 'false' on every worker except ONE — crons must never run on
-  // multiple replicas (duplicate expiry emails, doubled bandwidth deltas,
-  // doubled SSH load). Leader election is manual via this flag.
+  // Single cron worker: crons must never run on multiple replicas (duplicate
+  // emails, doubled bandwidth deltas). Leader election is manual via this flag.
   CRON_ENABLED: z.preprocess(
     (v) => v === true || v === 'true',
     z.boolean().default(true)
   ),
 
-  // Number of reverse-proxy hops to trust for req.ip (Cloudflare: 1).
-  // Rate limiting keys on req.ip — leaving this 0 behind a proxy means
-  // every user shares the proxy's IP and one user can rate-limit everyone.
+  // Reverse-proxy hops to trust for req.ip (Cloudflare: 1). Rate limiting
+  // keys on req.ip — 0 behind a proxy lets one user rate-limit everyone.
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 
+  // CSRF-02: server-side secret for the double-submit token (doubleCsrf
+  // signs the token cookie). Rotate like any secret; no login needed.
+  CSRF_SECRET: z.string().min(32),
+
   MONGO_URI: z.string().startsWith('mongodb'),
+
+  // DB-02: TLS to MongoDB. MONGO_CA_FILE pins the server's CA instead of
+  // trusting the system store. Without TLS, keys travel in clear text.
+  MONGO_TLS: z.preprocess((v) => v === true || v === 'true', z.boolean().default(false)),
+  MONGO_CA_FILE: z.string().min(1).optional(),
 
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ACCESS_EXPIRES: z.string().default('15m'),
   JWT_REFRESH_EXPIRES: z.string().default('30d'),
 
-  // JWT-01: ES256 (ECDSA P-256) key pairs, base64-encoded DER (SPKI public,
-  // PKCS8 private). When the private key for a type is set, tokens are signed
-  // with ES256 and verified against the matching public key instead of the
-  // shared HMAC secret above — clients can't forge tokens without the private
-  // key, and a compromised signer doesn't leak a secret usable elsewhere.
-  // Generate with scripts/generate-jwt-keys.js. Both or neither per type:
-  // keep the HMAC secrets during migration, then remove them after rotating.
+  // JWT-01: ES256 (ECDSA P-256) key pairs, base64 DER (SPKI public, PKCS8
+  // private). When set, tokens are signed with ES256 and verified against the
+  // public key — clients can't forge tokens without the private key. Generate
+  // with scripts/generate-jwt-keys.js; keep the HMAC secrets during migration.
   JWT_ACCESS_PUBLIC_KEY: z.string().base64().optional(),
   JWT_ACCESS_PRIVATE_KEY: z.string().base64().optional(),
   JWT_REFRESH_PUBLIC_KEY: z.string().base64().optional(),
@@ -40,8 +44,7 @@ const envSchema = z.object({
   WG_ENCRYPTION_KEY: z.string().length(64).regex(/^[0-9a-fA-F]+$/),
 
   // Rotation support: set the OLD key here BEFORE rotating WG_ENCRYPTION_KEY
-  // so stored device keys stay decryptable. Remove once no device was
-  // provisioned under the old key.
+  // so stored device keys stay decryptable; remove it once none remain.
   WG_ENCRYPTION_KEY_PREVIOUS: z
     .string()
     .length(64)
@@ -57,13 +60,11 @@ const envSchema = z.object({
 
   SSH_PRIVATE_KEY_PATH: z.string().min(1),
 
-  // Non-root SSH user on VPN nodes (created by scripts/provision-node.sh).
-  // Privileged node commands (wg, wg-quick, tc, xray api) run via the sudoers
-  // whitelist — the app never logs in as root.
+  // Non-root SSH user on VPN nodes (scripts/provision-node.sh). Privileged
+  // commands run via the sudoers whitelist — the app never logs in as root.
   NODE_SSH_USER: z.string().min(1).optional(),
 
-  // When true, bandwidth quota enforcement revokes devices over their
-  // plan quota. Basic = 500 GB/month; pro/team unlimited.
+  // When true, quota enforcement revokes devices over their plan quota.
   QUOTA_ENFORCE: z.preprocess(
     (v) => v === true || v === 'true' || v === undefined,
     z.boolean().default(true)
@@ -78,8 +79,7 @@ const envSchema = z.object({
   // ── Alerting ──────────────────────────────────────────────────────────────
   // 5xx errors, cron failures and node-down events alert via email (if set),
   // a generic webhook (Slack/Discord/Telegram-style JSON POST), and/or Sentry
-  // (lazy-loaded only when SENTRY_DSN is set AND @sentry/node is installed —
-  // it is an optional dependency, not a package.json requirement).
+  // (lazy-loaded only when SENTRY_DSN is set — an optional dependency).
   ALERT_EMAIL_TO: z.string().email().optional(),
   ALERT_WEBHOOK_URL: z.string().url().optional(),
   ALERT_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(5),
@@ -96,8 +96,7 @@ const envSchema = z.object({
   NODE_FRANKFURT_REALITY_SHORT_ID: z.string().optional(),
 
   // ── Xray / stealth mode ────────────────────────────────────────────────────────
-  // gRPC API endpoint on each VPN node (the xray api CLI reads its --server from
-  // this). SNI destination used for the Reality handshake and the VLESS URI.
+  // gRPC API endpoint on each node; SNI destination for the Reality handshake.
   XRAY_API_URL: z.string().url().default('http://127.0.0.1:10085'),
   XRAY_SNI_DEST: z.string().min(1).default('microsoft.com'),
 });

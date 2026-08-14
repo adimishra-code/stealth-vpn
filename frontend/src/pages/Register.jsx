@@ -25,7 +25,6 @@ export default function Register() {
   const [register, { isLoading }] = useRegisterMutation()
   const token = useSelector(selectToken)
 
-  // Already signed in — registration is pointless for an authed user.
   if (token) return <Navigate to="/dashboard" replace />
 
   const handleSubmit = async (e) => {

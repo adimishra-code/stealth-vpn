@@ -2,10 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { SCROLL_OBSERVER_OPTIONS, shouldRenderInstantly } from '../hooks/useScrollAnimation'
 
-// Reveals children once when they scroll into view. Uses IntersectionObserver
-// rather than a scroll listener so it costs nothing on the main thread.
-// Above-the-fold content renders instantly (no animation); only content
-// below the fold enters with a fade-up. Reduced motion renders instantly.
+// Reveals children once on scroll into view. Uses IntersectionObserver (no
+// scroll-listener cost); above-the-fold and reduced-motion content is instant.
 export default function Reveal({ children, delay = 0, className = '' }) {
   const ref = useRef(null)
   const [shown, setShown] = useState(false)
@@ -15,11 +13,8 @@ export default function Reveal({ children, delay = 0, className = '' }) {
     const el = ref.current
     if (!el) return
 
-    // No IO (or reduced motion): render visible immediately rather than hiding
-    // content behind an animation that will never run.
     if (shouldRenderInstantly()) {
-      // Intentional one-shot flip before first paint — content must never
-      // stay stuck hidden behind an animation that cannot run.
+      // One-shot flip before first paint — content must never stay hidden.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setInstant(true)
       setShown(true)
@@ -29,7 +24,6 @@ export default function Reveal({ children, delay = 0, className = '' }) {
     // Already in view on load → render instantly, no entrance.
     const rect = el.getBoundingClientRect()
     if (rect.top < window.innerHeight * 0.85) {
-      // Same one-shot flip: above-the-fold content must not animate.
       setInstant(true)
       setShown(true)
       return

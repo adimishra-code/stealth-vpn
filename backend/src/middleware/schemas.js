@@ -1,4 +1,17 @@
 const { z } = require('zod');
+const env = require('../config/env');
+
+// STRIPE-01: success/cancel URLs are where Stripe redirects the browser — an
+// open-ended URL would let an attacker redirect victims to a phishing
+// lookalike. Pin them to the app's own origin.
+const frontendOrigin = new URL(env.FRONTEND_URL).origin;
+const appOriginUrl = () =>
+  z
+    .string()
+    .url('Must be a valid URL')
+    .refine((u) => new URL(u).origin === frontendOrigin, {
+      message: `Redirect URL must be on ${frontendOrigin}`,
+    });
 
 // ── Auth schemas ──────────────────────────────────────────────────────────────
 const registerSchema = z.object({
@@ -68,8 +81,8 @@ const stripeSessionSchema = z.object({
   serverNode: z.enum(SERVER_NODE_CHOICES).default('auto'),
   deviceName: z.string().min(1).max(64),
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
-  successUrl: z.string().url(),
-  cancelUrl: z.string().url(),
+  successUrl: appOriginUrl(),
+  cancelUrl: appOriginUrl(),
 });
 
 const stripeConfirmSchema = z.object({
@@ -106,6 +119,14 @@ const adminListDevicesSchema = z.object({
   search: z.string().trim().max(200).optional(),
 });
 
+// API-01: audit-log listing is a GET, so page/limit travel in the query
+// string. Coerce + clamp them exactly like the body filters — a limit of
+// 1e9 must not turn into a full-table scan.
+const listAuditLogsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -124,4 +145,5 @@ module.exports = {
   adminExtendDeviceSchema,
   adminListUsersSchema,
   adminListDevicesSchema,
+  listAuditLogsQuerySchema,
 };

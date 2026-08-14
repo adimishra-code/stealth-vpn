@@ -33,7 +33,7 @@ export const adminApi = api.injectEndpoints({
     }),
     listDevices: build.query({
       query: (body) => ({ url: '/admin/devices', method: 'POST', body }),
-      providesTags: ['Devices'],
+      providesTags: ['AdminDevices'],
     }),
     expireDevice: build.mutation({
       query: (deviceId) => ({

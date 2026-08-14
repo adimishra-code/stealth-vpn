@@ -1,44 +1,65 @@
 import { Component } from 'react'
 import PropTypes from 'prop-types'
 
-// Last line of defense: if any page throws during render, show a recoverable
-// fallback instead of a blank white screen. The error is logged so it reaches
-// the operator (browser console / Sentry when wired up).
-export default class ErrorBoundary extends Component {
-  constructor(props) {
-    super(props)
-    this.state = { error: null }
-  }
+// TELEM-01: last line of defense for render errors — a crashed subtree must
+// never blank the SPA. Report once per mounted instance, fire-and-forget;
+// if the API is unreachable the failure stays silent.
+class ErrorBoundary extends Component {
+  state = { hasError: false, reported: false }
 
-  static getDerivedStateFromError(error) {
-    return { error }
+  static getDerivedStateFromError() {
+    return { hasError: true }
   }
 
   componentDidCatch(error, info) {
-    console.error('[ERROR BOUNDARY]', error, info)
+    if (this.state.reported) return
+    this.setState({ reported: true })
+    try {
+      fetch('/api/client-errors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          message: error && error.message,
+          stack: error && error.stack,
+          url: window.location.href,
+          componentStack: info && info.componentStack,
+        }),
+      }).catch(() => {})
+    } catch {
+      // never let telemetry itself throw
+    }
   }
 
   render() {
-    if (this.state.error) {
-      return (
-          <div className="min-h-screen flex items-center justify-center bg-void p-4">
-          <div className="card max-w-md text-center py-10 px-8">
-            <div className="text-4xl mb-4">⚠️</div>
-            <h1 className="font-display text-xl font-semibold text-ink mb-2">Something went wrong</h1>
-            <p className="text-sm text-muted mb-6">
-              The page hit an unexpected error. Reloading usually fixes it.
-            </p>
-            <button onClick={() => window.location.reload()} className="btn-primary">
-              Reload page
-            </button>
-          </div>
+    if (!this.state.hasError) return this.props.children
+
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-surface">
+        <div className="text-center max-w-md">
+          <p className="font-mono text-3xl text-accent-300 mb-4">connection lost</p>
+          <h1 className="font-display text-lg font-semibold text-ink mb-2">
+            Something went wrong rendering this screen
+          </h1>
+          <p className="text-sm text-faint mb-6">
+            The app crashed — your VPN configuration is safe. Reload to continue, and the
+            error has been reported for the next release.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="btn-primary"
+            type="button"
+          >
+            Reload app
+          </button>
         </div>
-      )
-    }
-    return this.props.children
+      </div>
+    )
   }
 }
 
 ErrorBoundary.propTypes = {
   children: PropTypes.node.isRequired,
 }
+
+export default ErrorBoundary

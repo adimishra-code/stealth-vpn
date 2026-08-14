@@ -2,16 +2,13 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const env = require('../config/env');
 
-// JWT-01: ES256 via per-type ECDSA P-256 key pairs (base64 DER in env). If the
-// private key for a type is present we sign ES256 and verify against the
-// public key — asymmetric means verification only needs a public key, and an
-// attacker holding one signing key still cannot forge the other token type.
-// Without the keys we fall back to the shared HMAC secret (legacy mode) so
-// existing deployments rotate at their own pace.
+// JWT-01: ES256 via per-type ECDSA P-256 key pairs (base64 DER in env) when
+// present; otherwise the shared HMAC secret (legacy mode, for gradual
+// migration). Asymmetric keys mean one token type cannot forge the other.
 
-// jsonwebtoken only treats STRINGS as potential asymmetric keys; DER buffers
-// are always read as symmetric. Convert once at load (this also validates the
-// keys — a broken pair crashes at boot, not on the first login).
+// jsonwebtoken only treats STRINGS as asymmetric keys; DER buffers are always
+// read as symmetric. Convert once at load — this also validates the keys, so
+// a broken pair crashes at boot, not on the first login.
 function derToPem(b64, kind) {
   const der = Buffer.from(b64, 'base64');
   const keyObject =

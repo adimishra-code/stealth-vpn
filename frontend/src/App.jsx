@@ -1,11 +1,12 @@
 import { Routes, Route } from 'react-router'
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, lazy, useEffect, useRef } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import ProtectedRoute from './router/ProtectedRoute'
 import AdminRoute from './router/AdminRoute'
 import Layout from './components/Layout'
 import ToastHost from './components/ToastHost'
-import { useMeQuery } from './features/auth/authApi'
+import ErrorBoundary from './components/ErrorBoundary'
+import { useMeQuery, useRefreshMutation } from './features/auth/authApi'
 import { selectToken, selectUser, setUser, clearCredentials } from './features/auth/authSlice'
 
 import Landing from './pages/Landing'
@@ -34,14 +35,15 @@ function PageLoader() {
   )
 }
 
-// A page reload leaves the token in localStorage but the user object empty.
-// Route guards read user.role, so on a cold load we must block until /me has
-// resolved AND landed in the store — otherwise guards run against a null user
-// and bounce admins off /admin.
+// Cold load has no access token (deliberately not persisted, CSRF-03) — the
+// httpOnly refresh cookie must be swapped for a token before guards run:
+// refresh() → /me repopulates user.role (null user would bounce admins).
 function useSessionBootstrap() {
   const dispatch = useDispatch()
   const token = useSelector(selectToken)
   const user = useSelector(selectUser)
+  const [refresh, { status }] = useRefreshMutation()
+  const restoreStarted = useRef(false)
   const { data, isError, isSuccess } = useMeQuery(undefined, { skip: !token })
 
   useEffect(() => {
@@ -52,8 +54,19 @@ function useSessionBootstrap() {
     if (isError) dispatch(clearCredentials())
   }, [isError, dispatch])
 
-  // Already have a user (e.g. just logged in) — nothing to wait for.
-  return !token || !!user || isError
+  // Try the refresh cookie exactly once: the backend rotates it per refresh,
+  // so a second concurrent attempt would invalidate the first; the ref also
+  // absorbs StrictMode's dev double-invoke.
+  useEffect(() => {
+    if (token || user || restoreStarted.current) return
+    restoreStarted.current = true
+    refresh().catch(() => {})
+  }, [token, user, refresh])
+
+  // Ready when /me settles (with token) or the restore attempt does.
+  if (token) return !!user || isError
+  if (status === 'pending') return false
+  return true
 }
 
 export default function App() {
@@ -68,8 +81,8 @@ export default function App() {
   }
 
   return (
-    <>
-      {/* Global toast layer — mounts once, survives route changes */}
+    <ErrorBoundary>
+      {/* Toast layer — mounts once, survives route changes */}
       <ToastHost />
       <Routes>
         <Route path="/" element={<Landing />} />
@@ -89,10 +102,10 @@ export default function App() {
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRoute><Suspense fallback={<PageLoader />}><Admin /></Suspense></AdminRoute>} />
 
-          {/* Must be the LAST route — catches every unmatched path. */}
+          {/* Last route — catches every unmatched path */}
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
-    </>
+    </ErrorBoundary>
   )
 }

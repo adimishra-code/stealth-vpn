@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import PropTypes from 'prop-types'
+import { useSelector } from 'react-redux'
+import { Link } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
-import { Laptop, Smartphone, Download, QrCode, Trash2, X, Activity } from 'lucide-react'
+import { Laptop, Smartphone, Download, QrCode, Trash2, X, Activity, Calendar, RefreshCw } from 'lucide-react'
 import { useGetQrQuery, useDownloadConfigQuery, useRevokeDeviceMutation } from '../features/devices/devicesApi'
+import { selectUser } from '../features/auth/authSlice'
 import ModeToggle from './ModeToggle'
 
 const NODE_LABEL = {
@@ -10,12 +13,22 @@ const NODE_LABEL = {
   frankfurt: { flag: '🇩🇪', city: 'Frankfurt' },
 }
 
-// Phones get a phone glyph; everything else a laptop. Cosmetic only.
+// Phones get a phone glyph, everything else a laptop. Cosmetic only.
 function isPhoneName(name = '') {
   return /phone|ios|android|pixel|galaxy|iphone/i.test(name)
 }
 
 export default function DeviceCard({ device }) {
+  const user = useSelector(selectUser)
+  // Per-device display uses the user's plan expiry — every device on the
+  // account expires together when the plan lapses (User.planExpiresAt is
+  // the single source of truth, devices don't carry their own).
+  const planExpiresAt = user?.planExpiresAt ? new Date(user.planExpiresAt) : null
+  const daysLeft = planExpiresAt
+    ? Math.max(0, Math.ceil((planExpiresAt - new Date()) / 86400000))
+    : null
+  const expiringSoon = daysLeft !== null && daysLeft <= 3 && daysLeft > 0
+  const expired = daysLeft === 0 && planExpiresAt && planExpiresAt < new Date()
   const [confirmRevoke, setConfirmRevoke] = useState(false)
   const [showQr, setShowQr] = useState(false)
   const { data: qrData, refetch: fetchQr, isFetching: qrLoading } = useGetQrQuery(device.id, { skip: !showQr })
@@ -54,17 +67,29 @@ export default function DeviceCard({ device }) {
     : status === 'expired'
       ? 'chip-warn'
       : 'chip-danger'
+  // Amber dot for active devices whose plan is about to lapse — visual
+  // nudge that the user needs to renew. Distinct from the terminal
+  // "expired" chip used when status==='expired'.
+  const dotTone = expired
+    ? 'bg-warn'
+    : status === 'expired'
+      ? 'bg-warn'
+      : status === 'revoked'
+        ? 'bg-faint'
+        : expiringSoon
+          ? 'bg-warn'
+          : 'bg-ok'
+  const dotPulse = device.isActive && !expired && status !== 'expired'
 
   return (
     <div className={`card card-hover group ${device.isActive ? '' : 'opacity-55'}`}>
       <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-5">
-        {/* Identity: status dot + device name + location/IP */}
         <div className="flex items-center gap-3.5 min-w-0 md:flex-1">
           <span className="relative flex h-2 w-2 shrink-0">
-            {device.isActive && (
-              <span className="absolute inline-flex h-full w-full rounded-full bg-ok animate-ping-dot" />
+            {dotPulse && (
+              <span className={`absolute inline-flex h-full w-full rounded-full ${dotTone} ${expiringSoon ? 'animate-pulse' : 'animate-ping-dot'}`} />
             )}
-            <span className={`relative inline-flex h-2 w-2 rounded-full ${device.isActive ? 'bg-ok shadow-dot' : 'bg-faint'}`} />
+            <span className={`relative inline-flex h-2 w-2 rounded-full ${dotTone} ${dotPulse ? 'shadow-dot' : ''}`} />
           </span>
 
           <div className="w-10 h-10 rounded-lg bg-raised/80 border border-line flex items-center justify-center shrink-0">
@@ -87,17 +112,28 @@ export default function DeviceCard({ device }) {
               <span className="text-faint/60">·</span>
               <span className="flex items-center gap-1"><Activity size={11} /> {usedGB} GB</span>
             </p>
+            {planExpiresAt && (
+              <p
+                className={`font-mono text-[11px] mt-1 flex items-center gap-1 ${
+                  expired || expiringSoon ? 'text-warn' : 'text-faint'
+                }`}
+                title={planExpiresAt.toLocaleString()}
+              >
+                <Calendar size={10} />
+                {expired
+                  ? `Expired ${planExpiresAt.toLocaleDateString()}`
+                  : `Expires ${planExpiresAt.toLocaleDateString()} · ${daysLeft}d left`}
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Mode toggle — middle column, physical switch */}
         {device.isActive && (
           <div className="md:w-56 md:shrink-0">
             <ModeToggle device={device} />
           </div>
         )}
 
-        {/* Actions */}
         {device.isActive && (
           <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
             <button onClick={downloadConfig} className="btn-secondary !py-1.5 !px-3 text-xs">
@@ -122,6 +158,32 @@ export default function DeviceCard({ device }) {
               <Trash2 size={13} />
               {revoking ? 'Revoking…' : confirmRevoke ? 'Confirm?' : 'Revoke'}
             </button>
+          </div>
+        )}
+
+        {!device.isActive && (
+          <div className="md:w-56 md:shrink-0 flex justify-end">
+            <Link
+              to="/billing"
+              className="btn-primary !py-1.5 !px-3 text-xs"
+              title="Your plan expired — renew to restore this device"
+            >
+              <RefreshCw size={13} />
+              Renew plan
+            </Link>
+          </div>
+        )}
+
+        {device.isActive && expired && (
+          <div className="md:shrink-0 flex justify-end">
+            <Link
+              to="/billing"
+              className="btn-primary !py-1.5 !px-3 text-xs"
+              title="Your plan lapsed — renew to keep this device online"
+            >
+              <RefreshCw size={13} />
+              Renew plan
+            </Link>
           </div>
         )}
       </div>

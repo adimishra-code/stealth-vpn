@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # ──────────────────────────────────────────────────────────────────────────────
 # StealthVPN — certbot setup for the control-plane host (TLS on 80/443).
@@ -51,15 +51,26 @@ fi
 
 # ── 4. Deploy hooks (default certbot systemd timers run twice daily) ────────
 mkdir -p "/etc/letsencrypt/renewal-hooks/deploy"
-cat > "/etc/letsencrypt/renewal-hooks/deploy/stealth-vpn-nginx.sh" << HOOK
+cat > "/etc/letsencrypt/renewal-hooks/deploy/stealth-vpn-nginx.sh" << 'HOOK'
 #!/bin/bash
-nginx -t && systemctl reload nginx
+# Renewal hook: only reload nginx when the config is still valid — a broken
+# nginx.conf must never be masked by an unconditional reload.
+set -e
+nginx -t
+systemctl reload nginx
 HOOK
 chmod +x "/etc/letsencrypt/renewal-hooks/deploy/stealth-vpn-nginx.sh"
 
 # ── 5. Verify ────────────────────────────────────────────────────────────────
+# snap's certbot ships its own timer; a distro package would use certbot.timer — report whichever is active.
 log "Verifying renewal timer..."
-systemctl list-timers 'certbot.timer' --no-pager | head -5 || log "certbot.timer not found — enable with: systemctl enable --now certbot.timer"
+if systemctl is-active snap.certbot.renew.timer >/dev/null 2>&1; then
+  systemctl list-timers 'snap.certbot.renew.timer' --no-pager | head -5
+elif systemctl is-active certbot.timer >/dev/null 2>&1; then
+  systemctl list-timers 'certbot.timer' --no-pager | head -5
+else
+  log "WARN: no certbot timer found — enable with: systemctl enable --now snap.certbot.renew.timer"
+fi
 
 log ""
 log "═══════════════════════════════════════════════════════"

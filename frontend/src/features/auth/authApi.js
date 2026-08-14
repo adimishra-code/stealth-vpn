@@ -16,9 +16,11 @@ export const authApi = api.injectEndpoints({
     }),
     logout: build.mutation({
       query: () => ({ url: '/auth/logout', method: 'POST' }),
+      invalidatesTags: ['Users'],
     }),
     logoutAll: build.mutation({
       query: () => ({ url: '/auth/sessions', method: 'DELETE' }),
+      invalidatesTags: ['Users'],
     }),
     totpSetup: build.mutation({
       query: () => ({ url: '/auth/totp/setup', method: 'POST' }),
@@ -35,8 +37,12 @@ export const authApi = api.injectEndpoints({
     resetPassword: build.mutation({
       query: (body) => ({ url: '/auth/reset-password', method: 'POST', body }),
     }),
+    resendVerify: build.mutation({
+      query: (body) => ({ url: '/auth/resend-verify', method: 'POST', body }),
+    }),
     me: build.query({
       query: () => '/auth/me',
+      providesTags: ['Users'],
     }),
   }),
 })
@@ -45,9 +51,11 @@ export const {
   useRegisterMutation,
   useVerifyEmailMutation,
   useLoginMutation,
+  useRefreshMutation,
   useLogoutMutation,
   useForgotPasswordMutation,
   useResetPasswordMutation,
+  useResendVerifyMutation,
   useMeQuery,
   useLogoutAllMutation,
   useTotpSetupMutation,

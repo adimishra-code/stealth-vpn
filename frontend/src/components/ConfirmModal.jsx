@@ -1,9 +1,8 @@
 import PropTypes from 'prop-types'
 import { AlertTriangle } from 'lucide-react'
 
-// Generic confirm dialog replacing window.confirm: it can never be blocked by
-// the browser, shows the action clearly, and gets a loading state while the
-// destructive mutation is in flight.
+// Replaces window.confirm: never blockable by the browser, and gets a
+// loading state while the destructive mutation is in flight.
 export default function ConfirmModal({ title, message, confirmLabel, danger, loading, onConfirm, onClose }) {
   return (
     <div

@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 
-// Delays reflecting a fast-changing value (like a search input) into its
-// dependents until it settles for `delay` ms — prevents a network query from
-// firing on every keystroke.
+// Defers a fast-changing value (e.g. search input) until it settles for
+// `delay` ms — prevents a network query firing on every keystroke.
 export default function useDebounce(value, delay = 300) {
   const [debounced, setDebounced] = useState(value)
 

@@ -28,6 +28,10 @@ router.post('/totp/setup', authMiddleware, authController.totpSetup);
 router.post('/totp/verify', authMiddleware, validate(totpSchema), authController.totpVerify);
 router.post('/totp/disable', authMiddleware, validate(totpSchema), authController.totpDisable);
 router.post('/forgot-password', forgotPasswordLimiter, validate(forgotPasswordSchema), authController.forgotPassword);
+// Resend verification — re-uses the register limiter (3/hr) to throttle abuse.
+// Anti-enumeration handled in the controller (same generic response for
+// "email not registered" and "email already verified").
+router.post('/resend-verify', registerLimiter, validate(forgotPasswordSchema), authController.resendVerify);
 router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
 router.get('/me', authMiddleware, authController.me);
 // Right to be forgotten: revokes everything now, hard-deletes after the

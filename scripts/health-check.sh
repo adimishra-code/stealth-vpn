@@ -10,6 +10,7 @@ OUTPUT_MODE="${1:-json}"
 WG_OK=0
 XRAY_OK=0
 TC_OK=0
+DNS_OK=0
 
 # ── WireGuard check ──────────────────────────────────────────────────────────
 if wg show wg0 &>/dev/null; then
@@ -31,6 +32,13 @@ XRAY_LISTEN=$(ss -tulnp | grep -c ':443' || echo 0)
 # ── Traffic shaping check ────────────────────────────────────────────────────
 if tc qdisc show dev wg0 2>/dev/null | grep -q 'htb'; then
   TC_OK=1
+fi
+
+# ── DNS check (clients use 10.8.0.1 → unbound; a dead resolver means the
+# ── tunnel works but every site fails to resolve) ────────────────────────────
+DNS_STATUS=$(systemctl is-active unbound 2>/dev/null || echo "inactive")
+if [[ "$DNS_STATUS" == "active" ]] && unbound-control status >/dev/null 2>&1; then
+  DNS_OK=1
 fi
 
 # ── System metrics ───────────────────────────────────────────────────────────
@@ -60,7 +68,7 @@ fi
 if [[ "$OUTPUT_MODE" == "json" ]]; then
   cat << JSONOUT
 {
-  "node_healthy": $([[ $WG_OK -eq 1 && $XRAY_OK -eq 1 ]] && echo true || echo false),
+  "node_healthy": $([[ $WG_OK -eq 1 && $XRAY_OK -eq 1 && $DNS_OK -eq 1 ]] && echo true || echo false),
   "wireguard": {
     "running": $([[ $WG_OK -eq 1 ]] && echo true || echo false),
     "listening": $([[ ${WG_LISTEN:-0} -gt 0 ]] && echo true || echo false),
@@ -72,6 +80,10 @@ if [[ "$OUTPUT_MODE" == "json" ]]; then
     "running": $([[ $XRAY_OK -eq 1 ]] && echo true || echo false),
     "status": "${XRAY_STATUS}",
     "listening": $([[ ${XRAY_LISTEN:-0} -gt 0 ]] && echo true || echo false)
+  },
+  "dns": {
+    "running": $([[ $DNS_OK -eq 1 ]] && echo true || echo false),
+    "status": "${DNS_STATUS}"
   },
   "traffic_shaping": {
     "active": $([[ $TC_OK -eq 1 ]] && echo true || echo false)
@@ -91,6 +103,7 @@ else
   echo "=== StealthVPN Node Health ==="
   echo "WireGuard:   $( [[ $WG_OK -eq 1 ]] && echo 'RUNNING' || echo 'DOWN' ) | Peers: ${PEER_COUNT:-0} | RX: ${TOTAL_RX_MB}MB TX: ${TOTAL_TX_MB}MB"
   echo "Xray:        $( [[ $XRAY_OK -eq 1 ]] && echo 'RUNNING' || echo 'DOWN' ) | Status: ${XRAY_STATUS}"
+  echo "DNS:         $( [[ $DNS_OK -eq 1 ]] && echo 'RUNNING' || echo 'DOWN' ) | Status: ${DNS_STATUS}"
   echo "Traffic Shp: $( [[ $TC_OK -eq 1 ]] && echo 'ACTIVE' || echo 'MISSING' )"
   echo "CPU:         ${CPU}% | MEM: ${MEM_USED}/${MEM_TOTAL}MB | Disk: ${DISK_USED:-0}% | Load: ${LOAD_1M}"
   echo "Uptime:      ${UPTIME}"

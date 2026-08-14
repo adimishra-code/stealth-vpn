@@ -65,8 +65,13 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
 
   const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode });
 
+  // API-03: the .conf embeds the WireGuard PRIVATE KEY — browsers and
+  // intermediaries must never cache it (a shared machine would leak the key).
+  // Content-Type/Disposition keep the download UX intact.
   res.setHeader('Content-Type', 'text/plain');
   res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}.conf"`);
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
   res.send(config);
 });
 
@@ -81,19 +86,27 @@ exports.qrcode = asyncHandler(async (req, res) => {
 
   const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode });
   const qrDataUrl = await generateQRBase64(config);
+  // API-03: the QR encodes the same private key — no caching, ever.
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
   res.json({ qrDataUrl, deviceName: device.deviceName });
 });
 
 exports.toggleMode = asyncHandler(async (req, res) => {
   const { mode } = req.body;
   const device = await Device.findOneAndUpdate(
-    { _id: req.params.id, userId: req.user._id },
+    { _id: req.params.id, userId: req.user._id, isActive: true },
     { $set: { mode } },
     { new: true }
   ).select('-wgPrivateKey -encryptedXrayUUID -__v');
 
-  if (!device) throw new ApiError(404, 'Device not found');
-  if (!device.isActive) throw new ApiError(400, 'Device revoked');
+  if (!device) {
+    // Filter covers both ownership and active state. Tell the caller which
+    // one failed so the FE can render the right error.
+    const exists = await Device.exists({ _id: req.params.id, userId: req.user._id });
+    if (!exists) throw new ApiError(404, 'Device not found');
+    throw new ApiError(400, 'Device revoked');
+  }
 
   logger.info('Device mode toggled', { deviceId: device._id.toString(), mode });
   res.json({ device });

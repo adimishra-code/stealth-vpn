@@ -10,6 +10,13 @@ const { alertError } = require('../services/alert.service');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
 const logger = require('../config/logger');
 
+// API-02: admin search terms are interpolated into MongoDB $regex. Escape
+// metacharacters first — otherwise one '(' or '*' throws (500 on every
+// search) or allows ReDoS-style backtracking against the email index.
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 exports.listUsers = asyncHandler(async (req, res) => {
   // PRIV-07/08: filters come from the validated POST body — identifiers must
   // never ride the query string into access logs.
@@ -20,7 +27,7 @@ exports.listUsers = asyncHandler(async (req, res) => {
 
   const filter = {};
   if (search) {
-    filter.email = { $regex: search, $options: 'i' };
+    filter.email = { $regex: escapeRegex(search), $options: 'i' };
   }
   if (plan) {
     filter.plan = plan;
@@ -144,9 +151,8 @@ exports.getBandwidthStats = asyncHandler(async (req, res) => {
   res.json({ perNode: stats });
 });
 
-// 2B — IP pool status. Alerts via console.warn when any node crosses 80% of
-// its pool — the operator should add capacity or reclaim IPs before a new
-// signup starts getting 503 "at capacity" errors.
+// 2B — IP pool status; console.warn when any node crosses 80% of its pool so
+// capacity is added before signups start hitting "at capacity" 503s.
 exports.getPoolStatus = asyncHandler(async (req, res) => {
   const nodes = await ServerNode.find().select('name subnetCIDR nextIP');
   const perNode = nodes.map((n) => computePoolUsage(n));
@@ -183,8 +189,6 @@ exports.getAlerts = asyncHandler(async (req, res) => {
   res.json({ failedPayments, expiredUsers, offlineNodes });
 });
 
-// Admin device inventory — needed by the admin panel to pick targets for the
-// lifecycle actions below. Search matches device name or assigned IP.
 exports.listDevices = asyncHandler(async (req, res) => {
   const page = req.body.page || 1;
   const limit = req.body.limit || 20;
@@ -193,8 +197,8 @@ exports.listDevices = asyncHandler(async (req, res) => {
   const filter = {};
   if (search) {
     filter.$or = [
-      { deviceName: { $regex: search, $options: 'i' } },
-      { assignedIP: { $regex: search, $options: 'i' } },
+      { deviceName: { $regex: escapeRegex(search), $options: 'i' } },
+      { assignedIP: { $regex: escapeRegex(search), $options: 'i' } },
     ];
   }
 

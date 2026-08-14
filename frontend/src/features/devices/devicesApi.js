@@ -4,7 +4,7 @@ export const devicesApi = api.injectEndpoints({
   endpoints: (build) => ({
     listDevices: build.query({
       query: () => '/devices',
-      providesTags: ['Devices'],
+      providesTags: ['UserDevices'],
     }),
     addDevice: build.mutation({
       query: (body) => ({ url: '/devices', method: 'POST', body }),

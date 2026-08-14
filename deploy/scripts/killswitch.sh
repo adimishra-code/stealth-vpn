@@ -1,7 +1,6 @@
 #!/bin/bash
-# Emergency — stop ALL traffic service on every node: xray down + wg0 down.
-# Clients lose connectivity within seconds and nothing forwards.
-# Use when the tunnel itself must die before anything else is evaluated.
+# Emergency — stop ALL traffic on every node (xray down + wg0 down).
+# Use when the tunnel must die before anything else is evaluated.
 #
 # Usage:
 #   ./deploy/scripts/killswitch.sh [node-ip ...]

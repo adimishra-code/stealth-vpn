@@ -9,6 +9,7 @@ const { allocateIP } = require('../utils/ipAllocator');
 const { generateQRBase64 } = require('../utils/qrcode');
 const logger = require('../config/logger');
 const { ApiError } = require('../utils/ApiError');
+const emailService = require('./email.service');
 const { PLAN_DURATION_DAYS } = require('./payment.service');
 
 const PLAN_LIMITS = {
@@ -33,9 +34,8 @@ async function enforceDeviceLimit(userId, plan) {
   }
 }
 
-// 'auto' (or omitted) picks the online node with the lowest active-peers load;
-// an explicit name is honored only if it has capacity left. Prevents every
-// user piling onto Mumbai until it falls over.
+// 'auto' (or omitted) picks the online node with the lowest active-peers
+// load; an explicit name is honored only if it has capacity left.
 async function resolveServerNode(serverNodeName) {
   if (serverNodeName && serverNodeName !== 'auto') {
     const node = await vpn.getServerNode(serverNodeName);
@@ -71,11 +71,9 @@ function nodeRealityKeys(serverNodeName) {
 }
 
 // ── Per-user provisioning lock ───────────────────────────────────────────────
-// Two concurrent payments for the same account can both pass enforceDeviceLimit
-// before either creates a row (TOCTOU), handing out more devices than the plan
-// allows. Single-instance PM2 deployment means an in-process mutex is enough:
-// serialize provisioning per user; the second caller re-checks the limit only
-// after the first finished. Exported for tests.
+// Two concurrent payments can both pass enforceDeviceLimit before either
+// creates a row (TOCTOU). Single-instance PM2 makes an in-process mutex
+// enough: serialize per user, second caller re-checks. Exported for tests.
 const userLocks = new Map(); // userId -> Promise
 
 function withUserLock(userId, fn) {
@@ -158,8 +156,11 @@ async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName,
   }
 
   const now = new Date();
-  const newExpiry = user.planExpiresAt && user.planExpiresAt > now
-    ? new Date(user.planExpiresAt.getTime() + PLAN_DURATION_DAYS * 86400000)
+  // Only extend plan expiry on a fresh purchase — not when adding/removing
+  // devices within an existing paid plan (that would yield unlimited free days).
+  const planWasActive = user.planExpiresAt && user.planExpiresAt > now;
+  const newExpiry = planWasActive
+    ? new Date(user.planExpiresAt) // keep existing expiry; device add/revoke won't push it further
     : new Date(now.getTime() + PLAN_DURATION_DAYS * 86400000);
 
   user.plan = plan;
@@ -191,6 +192,15 @@ async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName,
     nodeKeys: nodeRealityKeys(resolvedNodeName),
   });
 
+  // Email the config + VLESS URI to the user. Fire-and-forget so a slow SMTP
+  // server never delays the provisioning response; the user already has the
+  // config in-app and the dashboard QR button stays the primary recovery.
+  emailService.sendConfigEmail(user, device, configString, vlessUri).catch((err) => {
+    logger.error('Config email failed', { error: err.message, deviceId: device._id.toString() });
+  });
+
+  const vlessQrDataUrl = await generateQRBase64(vlessUri);
+
   return {
     device: {
       id: device._id,
@@ -203,6 +213,7 @@ async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName,
     config: configString,
     qrDataUrl,
     vlessUri,
+    vlessQrDataUrl,
     expiresAt: newExpiry,
   };
 }
@@ -223,9 +234,9 @@ async function revokeDevice(device, { status } = {}) {
     return;
   }
 
-  // Deliberately not caught: if the peer is still live on the node, the device
-  // must stay active so a retry happens. Marking it inactive here would report
-  // revoked while the user keeps working VPN access.
+  // Deliberately not caught: a still-live peer must keep the device active so
+  // a retry happens — marking it inactive would report revoked while the
+  // user keeps working VPN access.
   if (device.encryptedXrayUUID) {
     await xray.removeXrayUser({ serverNode: node, uuid: decryptPrivateKey(device.encryptedXrayUUID) });
   }
@@ -241,9 +252,9 @@ async function revokeDevice(device, { status } = {}) {
   logger.info('Device revoked', { deviceId: device._id.toString(), status: status || 'active' });
 }
 
-// Re-adds a previously revoked/expired device to its node and reactivates it.
-// Used by the admin extend flow and a re-buy after expiry. The peer's key and
-// IP are unchanged, so wg set is idempotent and no new IP is consumed.
+// Re-adds a previously revoked/expired device to its node and reactivates it
+// (admin extend flow, re-buy after expiry). Peer key and IP are unchanged, so
+// wg set is idempotent and no new IP is consumed.
 async function reactivateDevice(device, { plan } = {}) {
   const ServerNode = require('../models/ServerNode');
   const node = await ServerNode.findOne({ name: device.serverNode });

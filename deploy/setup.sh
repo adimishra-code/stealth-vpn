@@ -28,12 +28,22 @@ WG_IP_POOL="${WG_IP_POOL:-10.8.0.0/24}"
 WG_LISTEN_PORT="${WG_LISTEN_PORT:-51820}"
 XRAY_API_PORT="${XRAY_API_PORT:-10085}"
 XRAY_SNI_DEST="${XRAY_SNI_DEST:-microsoft.com}"
-# MongoDB auth (INFRA-01): the database must never run without authentication.
-# Use alphanumeric passwords — special chars would need URI escaping.
+# CSP-05: when set, port 22 is reachable only from this CIDR (your-IP/32).
+MANAGEMENT_CIDR="${MANAGEMENT_CIDR:-}"
+# MongoDB auth (INFRA-01): never run without it; use alphanumeric passwords (special chars need URI escaping).
 MONGO_ADMIN_PASSWORD="${MONGO_ADMIN_PASSWORD:?MONGO_ADMIN_PASSWORD is required}"
 MONGO_APP_PASSWORD="${MONGO_APP_PASSWORD:?MONGO_APP_PASSWORD is required}"
 
 log()  { echo -e "\033[1;32m[INFO]\033[0m $1"; }
+warn() { echo -e "\033[1;33m[WARN]\033[0m $1"; }
+
+# XRAY_SNI_DEST lands in xray JSON and the VLESS URI — must be a bare domain, no JSON metachars.
+case "${XRAY_SNI_DEST}" in
+  ''|.*|*.) echo "[ERROR] XRAY_SNI_DEST must be a bare domain (e.g. microsoft.com)" >&2; exit 1 ;;
+  *[!a-zA-Z0-9.-]*|*..*|*-.*|*-)
+    echo "[ERROR] XRAY_SNI_DEST contains invalid characters: '${XRAY_SNI_DEST}'" >&2
+    exit 1 ;;
+esac
 
 # ── 1. Base packages ──────────────────────────────────────────────────────────
 log "Installing base packages (wireguard, python3, ufw, curl)..."
@@ -68,11 +78,9 @@ if ! command -v mongod >/dev/null 2>&1; then
 fi
 
 # ── 3b. MongoDB authentication (idempotent) ───────────────────────────────────
-# Never run mongod with zero auth. Flow:
-#   * first run: authorization is enabled in mongod.conf with no users yet, so
-#     MongoDB's localhost exception lets us create the admin user;
-#   * re-runs: users exist → the localhost exception is gone, creation is
-#     skipped or done with credentials. Never fails the script either way.
+# Never run mongod with zero auth. First run: auth enabled with no users yet,
+# so the localhost exception lets us create the admin user; re-runs skip it.
+# Never fails the script either way.
 log "Enabling MongoDB authentication..."
 if ! grep -q 'authorization: enabled' /etc/mongod.conf; then
   cp /etc/mongod.conf /etc/mongod.conf.bak.$(date +%s)
@@ -122,15 +130,17 @@ PrivateKey = $(cat /etc/wireguard/server_private.key 2>/dev/null || echo 'PLACEH
 Address = ${WG_IP_POOL%/*}.1/${WG_IP_POOL#*/}
 ListenPort = ${WG_LISTEN_PORT}
 
+# DROP before the ACCEPTs — an appended -i wg0 -o wg0 DROP sits behind the
+# -i wg0 ACCEPT and never fires (peer-to-peer traffic would slip through).
+PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -o ${WG_INTERFACE} -j DROP
 PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -j ACCEPT
 PostUp   = iptables -A FORWARD -o ${WG_INTERFACE} -j ACCEPT
 PostUp   = iptables -t nat -A POSTROUTING -o ${IFACE} -j MASQUERADE
-PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -o ${WG_INTERFACE} -j DROP
 
+PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -o ${WG_INTERFACE} -j DROP
 PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -j ACCEPT
 PostDown = iptables -D FORWARD -o ${WG_INTERFACE} -j ACCEPT
 PostDown = iptables -t nat -D POSTROUTING -o ${IFACE} -j MASQUERADE
-PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -o ${WG_INTERFACE} -j DROP
 
 SaveConfig = true
 WGCONF
@@ -186,7 +196,13 @@ log "Configuring UFW..."
 ufw --force reset >/dev/null
 ufw default deny incoming
 ufw default allow outgoing
-ufw allow 22/tcp comment 'SSH'
+if [[ -n "${MANAGEMENT_CIDR}" ]]; then
+  # CSP-05: SSH only from the operator's CIDR — unreachable for brute force.
+  ufw allow from "${MANAGEMENT_CIDR}" to any port 22 proto tcp comment 'SSH (management CIDR)'
+else
+  warn "MANAGEMENT_CIDR unset — allowing SSH from anywhere. Set it to your-IP/32."
+  ufw allow 22/tcp comment 'SSH'
+fi
 ufw allow 80/tcp comment 'HTTP (xray fallback)'
 ufw allow 443/tcp comment 'Xray XTLS-Reality'
 ufw allow "${WG_LISTEN_PORT}/udp" comment 'WireGuard'
@@ -195,10 +211,18 @@ ufw --force enable
 # ── 8. Xray systemd service ───────────────────────────────────────────────────
 log "Writing /usr/local/etc/xray/config.json (Reality inbound on 443)..."
 REALITY_PRIVATE=$(grep 'Private key' /etc/xray/reality_keys.txt 2>/dev/null | awk '{print $3}' || true)
-# Never fall back to the PRIVATE key as the public one (the private key must
-# only ever appear in this node's xray config, and only on the 'prv' field).
+# Never fall back to the private key for the public one — prv only ever appears in this node's config.
 REALITY_PUBLIC="${XRAY_PUBLIC_KEY:-$(grep 'Public key' /etc/xray/reality_keys.txt 2>/dev/null | awk '{print $3}')}"
-SHORT_ID="${XRAY_SHORT_ID:-0000000000000000}"
+
+# Short IDs are the only per-node secret in a client URI; the all-zeros
+# default is a shared fingerprint — generate one and print it for .env.
+if [[ -z "${XRAY_SHORT_ID:-}" || "${XRAY_SHORT_ID}" == "0000000000000000" ]]; then
+  SHORT_ID="$(openssl rand -hex 8)"
+  log "No XRAY_SHORT_ID set (or it was the all-zeros default) — generated: ${SHORT_ID}"
+  log "Add SHORT_ID=${SHORT_ID} to your .env (NODE_<NAME>_REALITY_SHORT_ID) for client configs."
+else
+  SHORT_ID="${XRAY_SHORT_ID}"
+fi
 
 if [[ -z "$REALITY_PRIVATE" ]]; then
   mkdir -p /etc/xray
@@ -256,7 +280,7 @@ cat > /usr/local/etc/xray/config.json << XRAYEOF
   "routing": {
     "rules": [
       { "type": "field", "inboundTag": ["api-in"], "outboundTag": "api", "tag": "api" },
-      { "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }
+      { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
     ]
   },
   "stats": {},
@@ -274,20 +298,17 @@ systemctl start xray
 log "Installing PM2 (global)..."
 npm install -g pm2
 
-# Unprivileged system user for the API process. PM2 and the Node app run as
-# 'stealth' — root is only used at install time by this script.
+# Unprivileged system user — PM2 and the app run as 'stealth'; root only at install time.
 id -u stealth >/dev/null 2>&1 || useradd -r -m -s /bin/bash stealth
 
 mkdir -p /srv/stealthvpn/backend/logs
 chown -R stealth:stealth /srv/stealthvpn
 
-# PM2 boot-at-reboot service runs as 'stealth' (root creates the unit;
-# the documented pm2 pattern is to run this as root with -u <user>).
+# PM2 boot unit runs as 'stealth' (root creates it with pm2 startup -u <user>).
 pm2 startup systemd -u stealth --hp /home/stealth >/dev/null
 
 # ── 10. VPN-node operator user + SSH lockdown (this host is also a node) ──────
-# The API never logs in as root: it connects as 'stealthnode', which may only
-# run the exact commands below via passwordless sudo (sudoers whitelist).
+# The API connects as 'stealthnode' — passwordless sudo limited to the commands below.
 log "Creating node operator user 'stealthnode'..."
 id -u stealthnode >/dev/null 2>&1 || useradd -r -m -s /bin/bash stealthnode
 

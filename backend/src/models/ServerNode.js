@@ -46,10 +46,9 @@ const ServerNodeSchema = new mongoose.Schema({
     default: 200,
   },
   lastHealthCheck: Date,
-  // Last time a health sweep confirmed the node online. NOT touched by failed
-  // sweeps — this field is what lets the health cron measure true offline
-  // duration and fire the >5-min alert (previously lastHealthCheck was
-  // rewritten every 2-minute sweep, so the alert could never trigger).
+  // Advanced only by successful sweeps, so the health cron can measure true
+  // offline duration and fire the >5-min alert — lastHealthCheck is rewritten
+  // every sweep (success or failure) for diagnostics.
   lastOnlineAt: {
     type: Date,
     default: null,

@@ -52,18 +52,16 @@ const UserSchema = new mongoose.Schema({
   refreshTokens: [String],
 
   // ADMIN-01: TOTP 2FA for admin accounts. The secret is stored AES-256-GCM
-  // encrypted (encryptPrivateKey envelope, key = WG_ENCRYPTION_KEY) — a
-  // plaintext TOTP secret in Mongo would defeat the purpose. totpEnabled is
-  // the operative flag; setup re-generates the secret, disabling clears it.
+  // encrypted (WG_ENCRYPTION_KEY envelope); totpEnabled is the operative
+  // flag — setup re-generates the secret, disabling clears it.
   totpSecretEnc: String,
   totpEnabled: {
     type: Boolean,
     default: false,
   },
 
-  // When the user requested account deletion (GDPR-style right). The purge
-  // cron hard-deletes the account (and its devices/invoices) once this time
-  // passes; grace period lets support cancel accidental requests.
+  // When the user requested account deletion; the purge cron hard-deletes
+  // the account once this passes, the grace period lets support cancel.
   deletionScheduledAt: Date,
 
   createdAt: {

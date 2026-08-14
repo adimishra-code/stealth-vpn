@@ -10,12 +10,10 @@ const logger = require('../config/logger');
 // accidental request can be cancelled via support (they clear the field).
 const PURGE_GRACE_DAYS = 14;
 
-// DELETE /api/auth/me — GDPR-style right to be forgotten.
-//   * immediately revokes every device on the nodes (no tunnel keeps working)
-//   * invalidates all sessions (refresh tokens wiped)
-//   * schedules the irreversible hard delete PURGE_GRACE_DAYS out — the
-//     daily purge cron (src/cron/purgeExpiredData.cron.js) removes the user,
-//     devices and invoices once deletionScheduledAt passes.
+// DELETE /api/auth/me — GDPR-style right to be forgotten: revokes every
+// device immediately, wipes all sessions, and schedules the irreversible hard
+// delete PURGE_GRACE_DAYS out (the daily purge cron removes user, devices and
+// invoices once deletionScheduledAt passes).
 exports.requestAccountDeletion = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
   if (!user) {

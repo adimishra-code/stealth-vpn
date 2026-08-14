@@ -2,6 +2,7 @@ import { useState } from 'react'
 import PropTypes from 'prop-types'
 import { Zap, Radar } from 'lucide-react'
 import { useToggleModeMutation } from '../features/devices/devicesApi'
+import { toast } from '../lib/toast'
 
 export default function ModeToggle({ device }) {
   const [mode, setMode] = useState(device.mode)
@@ -13,8 +14,11 @@ export default function ModeToggle({ device }) {
     try {
       await toggle({ id: device.id, mode: nextMode }).unwrap()
       setMode(nextMode)
+      toast.success(`Switched to ${nextMode === 'stealth' ? 'Stealth (cloaked HTTPS)' : 'Gaming (raw WG)'}`)
     } catch (err) {
-      setError(err.data?.error || 'Failed to switch mode')
+      const msg = err.data?.error || 'Failed to switch mode'
+      setError(msg)
+      toast.error(msg)
     }
   }
 
@@ -23,7 +27,6 @@ export default function ModeToggle({ device }) {
   return (
     <div className="w-full">
       <div className="relative flex items-center gap-1 rounded-lg bg-void/70 border border-line p-1">
-        {/* Sliding thumb — physical switch feel, 200ms smooth */}
         <span
           aria-hidden="true"
           className={`absolute top-1 bottom-1 left-1 rounded-md border transition-transform duration-200 ease-smooth ${

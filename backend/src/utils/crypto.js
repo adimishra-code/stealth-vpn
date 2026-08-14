@@ -1,10 +1,24 @@
 const crypto = require('crypto');
 const env = require('../config/env');
 
+// CRYPTO-03: purpose-scoped subkeys via HKDF-SHA256. One master
+// WG_ENCRYPTION_KEY serves multiple secret classes (WG keys, Xray UUIDs,
+// TOTP secrets) — a distinct subkey per purpose means a leak of one
+// ciphertext class can never decrypt another, and the master key never
+// touches AES directly.
+const CRYPTO_PURPOSES = {
+  wg: 'stealthvpn:envelope:wg/v1',
+  totp: 'stealthvpn:envelope:totp/v1',
+};
+
+function deriveKey(hexKey, purpose) {
+  return crypto.hkdfSync('sha256', Buffer.from(hexKey, 'hex'), Buffer.alloc(0), purpose, 32);
+}
+
 // AES-256-GCM envelope: fresh 12-byte IV per call, tag included. Format:
 //   <iv hex>:<ciphertext hex>:<auth tag hex>
-function encryptPrivateKey(privateKey) {
-  const key = Buffer.from(env.WG_ENCRYPTION_KEY, 'hex');
+function encryptPrivateKey(privateKey, purpose = CRYPTO_PURPOSES.wg) {
+  const key = deriveKey(env.WG_ENCRYPTION_KEY, purpose);
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(privateKey, 'utf8'), cipher.final()]);
@@ -12,30 +26,37 @@ function encryptPrivateKey(privateKey) {
   return iv.toString('hex') + ':' + encrypted.toString('hex') + ':' + tag.toString('hex');
 }
 
-// Rotation support (CRYPTO-01): decrypt tries the current key first, then
-// WG_ENCRYPTION_KEY_PREVIOUS (set it before rotating WG_ENCRYPTION_KEY, then
-// remove it once no device was provisioned under the old key). Without this a
-// key change would silently lose every stored WireGuard private key. Writes
-// still always use the CURRENT key.
-function decryptPrivateKey(stored) {
+// Rotation support (CRYPTO-01): try the current key first, then
+// WG_ENCRYPTION_KEY_PREVIOUS — set it BEFORE rotating WG_ENCRYPTION_KEY and
+// remove it once no device was provisioned under the old key. Without this a
+// key change would silently lose every stored private key. Writes always
+// use the current key.
+//
+// CRYPTO-03 migration: blobs written BEFORE purpose-scoping used the raw
+// master key. Those are tried last so old rows stay decryptable; once
+// re-encrypted (any write path), they move to a derived key permanently.
+function decryptPrivateKey(stored, purpose = CRYPTO_PURPOSES.wg) {
   const [ivHex, encHex, tagHex] = stored.split(':');
-  const keys = [env.WG_ENCRYPTION_KEY];
+  const attempts = [{ key: deriveKey(env.WG_ENCRYPTION_KEY, purpose), label: 'derived-current' }];
   if (env.WG_ENCRYPTION_KEY_PREVIOUS) {
-    keys.push(env.WG_ENCRYPTION_KEY_PREVIOUS);
+    attempts.push({ key: deriveKey(env.WG_ENCRYPTION_KEY_PREVIOUS, purpose), label: 'derived-previous' });
   }
-  for (const hexKey of keys) {
+  attempts.push({ key: Buffer.from(env.WG_ENCRYPTION_KEY, 'hex'), label: 'legacy-current' });
+  if (env.WG_ENCRYPTION_KEY_PREVIOUS) {
+    attempts.push({ key: Buffer.from(env.WG_ENCRYPTION_KEY_PREVIOUS, 'hex'), label: 'legacy-previous' });
+  }
+  for (const attempt of attempts) {
     try {
-      const key = Buffer.from(hexKey, 'hex');
       const iv = Buffer.from(ivHex, 'hex');
       const enc = Buffer.from(encHex, 'hex');
       const tag = Buffer.from(tagHex, 'hex');
-      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      const decipher = crypto.createDecipheriv('aes-256-gcm', attempt.key, iv);
       decipher.setAuthTag(tag);
       return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
     } catch (err) {
-      // Wrong key → tag verification fails. Try the previous key if any;
-      // otherwise rethrow with context.
-      if (hexKey === keys[keys.length - 1]) {
+      // Wrong key → tag verification fails. Try the next candidate key;
+      // rethrow with context only after every candidate was exhausted.
+      if (attempt === attempts[attempts.length - 1]) {
         throw new Error(`Failed to decrypt WireGuard key (${err.message})`);
       }
     }
@@ -58,4 +79,11 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
-module.exports = { encryptPrivateKey, decryptPrivateKey, randomToken, randomUUID, hashToken };
+module.exports = {
+  encryptPrivateKey,
+  decryptPrivateKey,
+  randomToken,
+  randomUUID,
+  hashToken,
+  CRYPTO_PURPOSES,
+};

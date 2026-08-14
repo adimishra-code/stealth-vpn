@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Design tokens (mirror of tailwind.config.js — readable from JS) ──────── */
+/* ── Design tokens — mirror of tailwind.config.js (readable from JS) ── */
 :root {
   --bg: #0a0a0b;
   --surface: #151517;
@@ -17,7 +17,7 @@
   --ok: #34d399;
   --warn: #fbbf24;
   --danger: #fb7185;
-  /* Shadow tokens — mirror of tailwind.config.js boxShadow, readable from CSS */
+  /* Shadow tokens — mirror of tailwind.config.js boxShadow */
   --shadow-card: inset 0 1px 0 0 rgba(255, 255, 255, 0.035), 0 1px 2px 0 rgba(0, 0, 0, 0.45), 0 10px 30px -14px rgba(0, 0, 0, 0.7);
   --shadow-card-hover: inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 2px 4px 0 rgba(0, 0, 0, 0.4), 0 18px 44px -16px rgba(0, 0, 0, 0.8);
   --shadow-glow-accent: 0 0 0 1px rgba(45, 212, 191, 0.22), 0 6px 28px -8px rgba(45, 212, 191, 0.35);
@@ -39,9 +39,7 @@
     background-attachment: fixed;
   }
 
-  /* Global film-grain: fixed noise layer behind all content. Negative z-index
-     keeps it between the body background and the page, so nothing needs
-     touching to sit above it. */
+  /* Global film-grain: fixed noise layer behind all content (z -1). */
   body::before {
     content: '';
     position: fixed;
@@ -98,9 +96,7 @@
 }
 
 @layer components {
-  /* ── Buttons ────────────────────────────────────────────────────────────
-     Buttons never float (no translateY on hover). Active = pressed via
-     shadow-inset. Loading keeps width stable (w-full where it matters). */
+  /* ── Buttons — no float on hover; active = pressed via shadow-inset ── */
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -178,8 +174,7 @@
     pointer-events: none;
   }
 
-  /* ── Surfaces ───────────────────────────────────────────────────────────
-     Flat, material weight — no gradients. Depth comes from shadow + border. */
+  /* ── Surfaces — flat; depth comes from shadow + border ── */
   .card {
     position: relative;
     background-color: var(--surface);
@@ -243,12 +238,12 @@
     margin-bottom: 0.375rem;
   }
 
-  /* ── Chips / badges — tight, mono, small radius ───────────────────────── */
+  /* ── Chips / badges — tight, mono, small radius ── */
   .chip {
     display: inline-flex;
     align-items: center;
     gap: 0.375rem;
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
     font-size: 11px;
     font-weight: 500;
     padding: 0.125rem 0.5rem;
@@ -281,7 +276,7 @@
     color: var(--danger);
   }
 
-  /* ── Skeleton — surface colour, shimmer sweep, matches content shape ──── */
+  /* ── Skeleton — surface colour, shimmer sweep ── */
   .skeleton {
     position: relative;
     overflow: hidden;
@@ -297,7 +292,7 @@
     background-image: linear-gradient(90deg, transparent, rgba(244, 244, 245, 0.05), transparent);
   }
 
-  /* ── Glass — reserved for the modal overlay + one drawer, nothing else ── */
+  /* ── Glass — modal overlay + one drawer, nothing else ── */
   .glass {
     background-color: rgba(10, 10, 11, 0.7);
     backdrop-filter: blur(4px);
@@ -305,7 +300,7 @@
     border: 1px solid var(--border);
   }
 
-  /* ── Accent text gradient — one place only: never on headlines ───────── */
+  /* ── Accent text gradient — one place only, never on headlines ── */
   .text-accent-gradient {
     background: linear-gradient(100deg, #5eead8, #2dd4bf 55%, #14b8a6);
     -webkit-background-clip: text;
@@ -317,7 +312,7 @@
     filter: drop-shadow(0 0 12px rgba(45, 212, 191, 0.35));
   }
 
-  /* ── Scroll-triggered entrances (Reveal component drives these) ───────── */
+  /* ── Scroll-triggered entrances (Reveal component drives these) ── */
   .animate-on-scroll {
     opacity: 0;
     transform: translateY(12px);
@@ -326,13 +321,13 @@
     animation: fade-up 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
-  /* ── Page transitions — keyed container in Layout, re-runs per route ──── */
+  /* ── Page transitions — keyed container in Layout, re-runs per route ── */
   .page-enter {
     animation: fade-up 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
-  /* ── Toast styling. No toast component exists yet — these classes define
-     the system so any future implementation follows the motion rules. ──── */
+  /* ── Toast styling — predefines the system so future implementations
+        follow the same motion rules ── */
   .toast {
     pointer-events: auto;
     display: flex;
@@ -371,7 +366,7 @@
     color: var(--text-primary);
   }
 
-  /* ── Noise texture for the landing hero background ────────────────────── */
+  /* ── Noise texture for the landing hero background ── */
   .noise::before {
     content: '';
     position: absolute;

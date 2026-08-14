@@ -12,7 +12,8 @@ export default function BandwidthChart() {
   const { data, isLoading, isError, refetch, isFetching } = useGetDailyBandwidthQuery({ days: 30 })
 
   const daily = (data?.daily || []).map((d) => ({
-    date: d.date.slice(5), // "YYYY-MM-DD" -> "MM-DD"
+    date: d.date.slice(5), // "YYYY-MM-DD" -> "MM-DD" for tick label
+    fullDate: d.date,
     mb: d.totalMB,
     label: formatMB(d.totalMB),
   }))
@@ -87,12 +88,13 @@ export default function BandwidthChart() {
                   border: '1px solid #38383f',
                   borderRadius: 8,
                   boxShadow: '0 1px 2px 0 rgba(0,0,0,0.45), 0 10px 30px -14px rgba(0,0,0,0.7)',
-                  fontFamily: '"JetBrains Mono", monospace',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
                   fontSize: 12,
                   color: '#f4f4f5',
                 }}
                 labelStyle={{ color: '#8f8f98' }}
                 itemStyle={{ color: '#2dd4bf' }}
+                labelFormatter={(_label, payload) => payload?.[0]?.payload?.fullDate || _label}
                 formatter={(value) => [formatMB(value), 'bandwidth']}
               />
               <Area

@@ -71,6 +71,18 @@ async function runSnapshotPass() {
     }
   }
 
+  // Retention: snapshots are point-in-time totals for a rolling admin chart;
+  // prune past the same 90-day horizon the audit log uses.
+  try {
+    const cutoff = utcMidnight(Date.now() - 90 * 86400000);
+    const pruned = await BandwidthSnapshot.deleteMany({ date: { $lt: cutoff } });
+    if (pruned.deletedCount) {
+      logger.info('Bandwidth snapshots pruned', { deleted: pruned.deletedCount });
+    }
+  } catch (err) {
+    logger.error('Bandwidth snapshot pruning failed', { error: err.message });
+  }
+
   logger.info('Bandwidth snapshots recorded', { nodes: nodes.length, date: today.toISOString() });
 }
 

@@ -6,9 +6,8 @@ const env = require('../config/env');
 const logger = require('../config/logger');
 
 // wg show wg0 transfer reports CUMULATIVE rx/tx bytes since the interface
-// started. We store the last-seen baseline per device and $inc only the
-// delta each 5-minute pass. Clamped to >= 0 so a node reboot (counters
-// reset to 0) never produces a negative or inflated delta.
+// started. Store a per-device baseline and $inc only the delta each pass;
+// clamped to >= 0 so a node reboot never produces a negative or inflated delta.
 function computeBandwidthDelta({ rx, tx, lastRx = null, lastTx = null }) {
   const deltaRx = lastRx == null ? 0 : Math.max(rx - lastRx, 0);
   const deltaTx = lastTx == null ? 0 : Math.max(tx - lastTx, 0);
@@ -50,9 +49,8 @@ async function syncBandwidthForNode(node) {
         lastTx: device.lastWgTxBytes,
       });
 
-      // Optimistic concurrency: if another pass (or instance) already wrote a
-      // new baseline between our read and write, modifiedCount is 0 and the
-      // next pass reconciles — no double counting.
+      // Optimistic concurrency: modifiedCount 0 means another pass already
+      // wrote a new baseline — the next pass reconciles, no double counting.
       const res = await Device.updateOne(
         { _id: device._id, lastWgRxBytes: device.lastWgRxBytes, lastWgTxBytes: device.lastWgTxBytes },
         {
@@ -100,10 +98,8 @@ function nextQuotaResetAt(now = new Date()) {
   return next;
 }
 
-// PRIV-19: quota is advertised as monthly, so at the month boundary every
-// metered device starts from zero again. Only devices with a quotaMB are
-// touched; baselines reset to null so the next delta pass starts fresh
-// (cumulative wg counters make this double-count-proof).
+// PRIV-19: quota is advertised as monthly, so metered devices reset at the
+// month boundary. Baselines reset to null so the next delta pass starts fresh.
 async function resetMonthlyQuotas(now = new Date()) {
   const res = await Device.updateMany(
     { quotaMB: { $ne: null } },
@@ -113,6 +109,8 @@ async function resetMonthlyQuotas(now = new Date()) {
         quotaExceeded: false,
         lastWgRxBytes: null,
         lastWgTxBytes: null,
+        isActive: true,
+        status: 'active',
       },
     }
   );

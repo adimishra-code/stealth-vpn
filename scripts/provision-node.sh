@@ -53,12 +53,10 @@ systemctl start fail2ban
 log "Hardening SSH..."
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%s)
 
-# Create the non-root user the control plane connects as. Root login is
-# disabled entirely — the backend only ever reaches this host as 'stealthnode'.
+# Backend connects as non-root 'stealthnode' — root login is disabled.
 id -u stealthnode >/dev/null 2>&1 || useradd -r -m -s /bin/bash stealthnode
 
-# Sudoers whitelist: exactly the commands StealthVPN needs on a node, nothing
-# else. No shell, no package manager, no file access.
+# Sudoers whitelist: only the commands the control plane needs — no shell.
 cat > /etc/sudoers.d/stealthnode << SUDOERS
 # StealthVPN node commands only — no shell, no arbitrary commands.
 Cmnd_Alias VPNNODE = /usr/bin/wg set wg0 *, /usr/bin/wg show *, /usr/bin/wg-quick save wg0, /usr/sbin/tc class *, /usr/sbin/tc filter *, /usr/local/bin/xray api *
@@ -90,7 +88,15 @@ ufw --force reset
 ufw default deny incoming
 ufw default allow outgoing
 
-ufw allow 22/tcp comment 'SSH'
+# SSH only from MANAGEMENT_CIDR (CSP-05): 0.0.0.0/0 is a brute-force surface,
+# and running from outside the CIDR locks the operator out — set your IP/32.
+if [[ -n "${MANAGEMENT_CIDR:-}" ]]; then
+  ufw allow from "${MANAGEMENT_CIDR}" to any port 22 proto tcp comment 'SSH (management CIDR)'
+  log "SSH allowed only from ${MANAGEMENT_CIDR}"
+else
+  warn "MANAGEMENT_CIDR unset — allowing SSH from anywhere. Set it to your IP/32."
+  ufw allow 22/tcp comment 'SSH'
+fi
 ufw allow 443/tcp comment 'Xray XTLS-Reality'
 ufw allow 51820/udp comment 'WireGuard'
 ufw --force enable
@@ -114,18 +120,23 @@ log "Writing WireGuard configuration..."
 cat > /etc/wireguard/wg0.conf << WGCONF
 [Interface]
 PrivateKey = ${SERVER_PRIVATE}
-Address = 10.8.0.1/16
+# /24, not /16: the control plane hands out IPs from 10.8.0.0/24 and the
+# client configs must stay inside the pool (INFRA-19).
+Address = 10.8.0.1/24
 ListenPort = 51820
 
+# DROP must come BEFORE the ACCEPTs: -i wg0 -j ACCEPT matches first, and an
+# appended -i wg0 -o wg0 DROP would sit behind it and never fire (peer-to-peer
+# traffic on the tunnel would slip through). Insert order = rule order.
+PostUp   = iptables -A FORWARD -i wg0 -o wg0 -j DROP
 PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT
 PostUp   = iptables -A FORWARD -o wg0 -j ACCEPT
 PostUp   = iptables -t nat -A POSTROUTING -o ${IFACE} -j MASQUERADE
-PostUp   = iptables -A FORWARD -i wg0 -o wg0 -j DROP
 
+PostDown = iptables -D FORWARD -i wg0 -o wg0 -j DROP
 PostDown = iptables -D FORWARD -i wg0 -j ACCEPT
 PostDown = iptables -D FORWARD -o wg0 -j ACCEPT
 PostDown = iptables -t nat -D POSTROUTING -o ${IFACE} -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -o wg0 -j DROP
 
 SaveConfig = true
 WGCONF
@@ -141,6 +152,30 @@ net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=0
 net.ipv6.conf.${IFACE}.disable_ipv6=0
 net.ipv6.conf.wg0.disable_ipv6=1
+
+# ── Kernel hardening (nodes are Internet-facing) ─────────────────────────────
+# Reverse-path filtering: drop packets arriving on the wrong interface —
+# the classic spoofing vector on any host with multiple interfaces.
+net.ipv4.conf.all.rp_filter=1
+net.ipv4.conf.default.rp_filter=1
+# ICMP redirects + source routing are pure MITM helpers over a tunnel;
+# no legitimate use on a VPN node.
+net.ipv4.conf.all.accept_redirects=0
+net.ipv4.conf.default.accept_redirects=0
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+net.ipv4.conf.all.accept_source_route=0
+net.ipv4.conf.default.accept_source_route=0
+net.ipv6.conf.all.accept_redirects=0
+net.ipv6.conf.all.accept_source_route=0
+# SYN cookies: stay available under a SYN flood.
+net.ipv4.tcp_syncookies=1
+# Ignore broadcast pings (amplification).
+net.ipv4.icmp_echo_ignore_broadcasts=1
+# No core dumps: a crash of wg-quick/xray could otherwise write private
+# key material (tunnel state is in process memory) to disk, recoverable
+# by anyone with filesystem access.
+kernel.core_pattern=|/bin/false
 EOF
 sysctl --system
 
@@ -154,10 +189,8 @@ systemctl start wg-quick@wg0
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 8b: Local DNS resolver — unbound on 10.8.0.1
 # ──────────────────────────────────────────────────────────────────────────────
-# The client config hands DNS = 10.8.0.1, so a resolver must actually listen
-# there — otherwise the node answers nothing and clients fall back to ISP DNS
-# (a leak). Unbound forwards upstream over DoT (TLS 853) to 1.1.1.1/8.8.8.8,
-# binds tunnel + loopback only, and refuses every other source.
+# Clients get DNS = 10.8.0.1, so a resolver must listen here — else they fall
+# back to ISP DNS (a leak). DoT (TLS 853) upstream, tunnel+loopback only.
 log "Installing unbound (local DNS resolver on 10.8.0.1:53)..."
 apt install -y unbound
 
@@ -167,7 +200,7 @@ server:
     interface: 127.0.0.1
     port: 53
     do-ip6: no
-    access-control: 10.8.0.0/16 allow
+    access-control: 10.8.0.0/24 allow
     access-control: 127.0.0.0/8 allow
     access-control: 0.0.0.0/0 refuse
     hide-identity: yes
@@ -291,7 +324,7 @@ cat > /usr/local/etc/xray/config.json << XRAYEOF
       {
         "type": "field",
         "ip": ["geoip:private"],
-        "outboundTag": "direct"
+        "outboundTag": "block"
       }
     ]
   },
@@ -319,28 +352,29 @@ systemctl start xray
 # ──────────────────────────────────────────────────────────────────────────────
 log "Applying traffic shaping rules..."
 
-# Root HTB qdisc on wg0 (inbound/outbound traffic)
+# HTB root on wg0 only — shaping the physical IFACE would jitter SSH/API
+# traffic and leak the tunnel's QoS fingerprint onto other host flows.
 tc qdisc add dev wg0 root handle 1: htb default 999 2>/dev/null || \
   tc qdisc replace dev wg0 root handle 1: htb default 999
 
 tc class add dev wg0 parent 1: classid 1:999 htb rate 1000mbit 2>/dev/null || true
 tc class add dev wg0 parent 1: classid 2:999 htb rate 1000mbit 2>/dev/null || true
 
-# Jitter injection on primary interface (makes traffic look residential)
-# Vary delay between 5ms and 18ms with normal distribution
-tc qdisc add dev ${IFACE} root handle 10: netem \
+# Residential-look jitter: netem must hang off the HTB class (parent 1:999),
+# not the device root — wg0 already owns the root qdisc.
+tc qdisc add dev wg0 parent 1:999 handle 10: netem \
   delay 5ms 13ms distribution normal loss 0.01% 2>/dev/null || \
-  tc qdisc replace dev ${IFACE} root handle 10: netem \
+  tc qdisc replace dev wg0 parent 1:999 handle 10: netem \
     delay 5ms 13ms distribution normal loss 0.01%
 
 # Reduce MTU on WG interface — prevents packet-size signatures
 ip link set wg0 mtu 1380
 
-# Randomize outbound NAT port for each connection
-iptables -t nat -C POSTROUTING -o ${IFACE} -p udp --dport 51820 -j MASQUERADE --random-fully 2>/dev/null || \
-  iptables -t nat -A POSTROUTING -o ${IFACE} -p udp --dport 51820 -j MASQUERADE --random-fully
+# Randomize outbound NAT port per connection. Match by interface, not
+# --dport 51820 (traffic *to* WG; tunneled flows exit with source port 51820).
+iptables -t nat -C POSTROUTING -o ${IFACE} -i wg0 -j MASQUERADE --random-fully 2>/dev/null || \
+  iptables -t nat -A POSTROUTING -o ${IFACE} -i wg0 -j MASQUERADE --random-fully
 
-# Make iptables rules persistent
 netfilter-persistent save
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -370,6 +404,10 @@ Before=xray.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/bin/stealth-tc.sh
+# Oneshot services don't retry on failure by default — if wg0 is briefly
+# missing at boot, tc fails and shaping stays off until the next reboot.
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -384,13 +422,14 @@ tc qdisc replace dev wg0 root handle 1: htb default 999
 tc class add dev wg0 parent 1: classid 1:999 htb rate 1000mbit 2>/dev/null || true
 tc class add dev wg0 parent 1: classid 2:999 htb rate 1000mbit 2>/dev/null || true
 
-tc qdisc replace dev \${IFACE} root handle 10: netem \\
+# netem under the HTB class — wg0's root qdisc is already owned by HTB.
+tc qdisc replace dev wg0 parent 1:999 handle 10: netem \\
   delay 5ms 13ms distribution normal loss 0.01%
 
 ip link set wg0 mtu 1380
 
-iptables -t nat -C POSTROUTING -o \${IFACE} -p udp --dport 51820 -j MASQUERADE --random-fully 2>/dev/null || \\
-  iptables -t nat -A POSTROUTING -o \${IFACE} -p udp --dport 51820 -j MASQUERADE --random-fully
+iptables -t nat -C POSTROUTING -o \${IFACE} -i wg0 -j MASQUERADE --random-fully 2>/dev/null || \\
+  iptables -t nat -A POSTROUTING -o \${IFACE} -i wg0 -j MASQUERADE --random-fully
 EOF
 
 chmod +x /usr/local/bin/stealth-tc.sh

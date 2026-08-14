@@ -3,8 +3,7 @@ import PropTypes from 'prop-types'
 import { useExtendDeviceMutation } from '../../features/admin/adminApi'
 import { toast } from '../../lib/toast'
 
-// Controlled modal for adding days to a device's plan expiry. Not a full-page
-// overlay — a small centered dialog with a number input.
+// Controlled modal for adding days to a device's plan expiry.
 export default function ExtendModal({ deviceId, deviceName, onClose }) {
   const [days, setDays] = useState(30)
   const [extendDevice, { isLoading }] = useExtendDeviceMutation()

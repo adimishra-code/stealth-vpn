@@ -1,7 +1,6 @@
 #!/bin/bash
-# Check the service's public IPs against common IP-reputation databases.
-# A VPN infrastructure that lands on blocklists loses users (and stealth).
-# Run weekly from cron; investigate any LISTED hit immediately.
+# Check public IPs against IP-reputation databases — a VPN infra on blocklists
+# loses users (and stealth). Run weekly from cron; investigate LISTED hits.
 #
 # Usage:
 #   ./deploy/scripts/check-ip-reputation.sh [ip ...]

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 // JWT-01: generate ES256 (ECDSA P-256) key pairs for JWT signing.
 //
 //   node scripts/generate-jwt-keys.js
@@ -7,7 +7,7 @@
 //   JWT_ACCESS_PUBLIC_KEY / JWT_ACCESS_PRIVATE_KEY
 //   JWT_REFRESH_PUBLIC_KEY / JWT_REFRESH_PRIVATE_KEY
 //
-// The PRIVATE keys must go into the control plane's .env ONLY — they are the
+// The PRIVATE keys must go into the control plane's .env ONLY -- they are the
 // token-signing material. The PUBLIC keys are safe to ship anywhere (they are
 // embedded in nothing today, but verification only ever needs them).
 // Back up the private keys per docs/BACKUP_KEY_SETUP.md.
@@ -34,7 +34,7 @@ function derPair(prefix) {
 const access = derPair('JWT_ACCESS');
 const refresh = derPair('JWT_REFRESH');
 
-console.log(`# ES256 key pairs — generated ${new Date().toISOString()}`);
+console.log(`# ES256 key pairs -- generated ${new Date().toISOString()}`);
 console.log(`# P-256 (prime256v1), DER: PKCS8 (private) / SPKI (public), base64.\n`);
 console.log(`JWT_ACCESS_PUBLIC_KEY=${access.public}`);
 console.log(`JWT_ACCESS_PRIVATE_KEY=${access.private}\n`);

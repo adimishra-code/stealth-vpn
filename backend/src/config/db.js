@@ -8,12 +8,16 @@ async function connectDB() {
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+      // DB-02: TLS is opt-in so local dev without a cert keeps working;
+      // production sets MONGO_TLS=true (+ MONGO_CA_FILE to pin the CA).
+      tls: env.MONGO_TLS,
+      tlsCAFile: env.MONGO_CA_FILE || undefined,
     });
     logger.info('MongoDB connected');
   } catch (err) {
     logger.error('MongoDB connection failed', { error: err.message });
-    // No DB = no service; PM2 restarts us, but only after a failed attempt is
-    // worth retrying (the mongo container may still be coming up).
+    // No DB = no service; PM2 restarts us after a failed attempt is retried
+    // (the mongo container may still be coming up).
     // eslint-disable-next-line no-process-exit -- cannot serve without MongoDB
     process.exit(1);
   }

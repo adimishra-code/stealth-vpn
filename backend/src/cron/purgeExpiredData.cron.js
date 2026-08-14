@@ -29,6 +29,8 @@ function startPurgeCron() {
 }
 
 async function runPurgePass() {
+  await clearExpiredAuthTokens();
+
   const due = await User.find({ deletionScheduledAt: { $lt: new Date() } });
   if (!due.length) return;
 
@@ -48,7 +50,7 @@ async function runPurgePass() {
           error: err.message,
         });
         alertCronFailure('purge', err);
-        return;
+        continue;
       }
     }
 
@@ -59,6 +61,32 @@ async function runPurgePass() {
   }
 
   logger.info('Purge complete', { purged: due.length });
+}
+
+// DB-01: expired email-verify and password-reset tokens must not linger —
+// stale digests waste storage/index space and shadow fresh requests.
+//
+// Deliberately NOT a Mongo TTL index: a TTL index on these Date fields
+// DELETES THE WHOLE DOCUMENT when the indexed date passes, silently
+// destroying a verified, paying account the moment a fresh reset link is
+// requested. Field-level cleanup keeps the account, drops only the stale
+// secret.
+async function clearExpiredAuthTokens() {
+  const now = new Date();
+  const verify = await User.updateMany(
+    { emailVerifyExpires: { $lt: now } },
+    { $unset: { emailVerifyToken: '', emailVerifyExpires: '' } }
+  );
+  const reset = await User.updateMany(
+    { passwordResetExpires: { $lt: now } },
+    { $unset: { passwordResetToken: '', passwordResetExpires: '' } }
+  );
+  if (verify.modifiedCount || reset.modifiedCount) {
+    logger.info('Cleared expired auth tokens', {
+      verify: verify.modifiedCount,
+      reset: reset.modifiedCount,
+    });
+  }
 }
 
 module.exports = { startPurgeCron, runPurgePass };

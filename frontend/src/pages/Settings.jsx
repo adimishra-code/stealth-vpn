@@ -1,13 +1,17 @@
 import { useState } from 'react'
-import { useSelector } from 'react-redux'
-import { selectUser } from '../features/auth/authSlice'
+import { useSelector, useDispatch } from 'react-redux'
+import { useNavigate } from 'react-router'
+import { selectUser, clearCredentials } from '../features/auth/authSlice'
 import { useLogoutAllMutation, useTotpSetupMutation, useTotpVerifyMutation, useTotpDisableMutation } from '../features/auth/authApi'
 import { Mail, UserCog, KeyRound, ShieldCheck, MonitorX, AlertTriangle, Loader2 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
+import { toast } from '../lib/toast'
 import ConfirmModal from '../components/ConfirmModal'
 
 export default function Settings() {
   const user = useSelector(selectUser)
+  const dispatch = useDispatch()
+  const navigate = useNavigate()
   const [logoutAll, { isLoading }] = useLogoutAllMutation()
   const [confirming, setConfirming] = useState(false)
   const [result, setResult] = useState(null)
@@ -68,10 +72,15 @@ export default function Settings() {
   const handleLogoutAll = async () => {
     setResult(null)
     try {
-      const data = await logoutAll().unwrap()
-      setResult(data.sessionsRevoked ? 'All other devices signed out.' : 'All devices signed out.')
+      await logoutAll().unwrap()
+      // logout-all wipes refresh tokens server-side and clears the cookie,
+      // but the in-memory access token on THIS device is still valid until
+      // its 15-minute expiry. Clear Redux + redirect so the user lands on
+      // /login and the next request 401s cleanly.
+      dispatch(clearCredentials())
+      navigate('/login')
     } catch {
-      setResult('Sign-out failed. Try again.')
+      toast.error('Sign-out failed. Try again.')
     }
     setConfirming(false)
   }
@@ -225,7 +234,9 @@ export default function Settings() {
           Danger zone
         </h2>
         <p className="text-sm text-muted mb-4">
-          Deleting your account immediately revokes all devices and removes your data.
+          Schedules your account for deletion after a 7-day grace period. During that window
+          you can contact support to cancel; afterwards your account and data are removed
+          permanently.
         </p>
         <button disabled className="btn-danger text-sm opacity-50" title="Coming soon">
           Delete account

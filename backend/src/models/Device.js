@@ -34,10 +34,9 @@ const DeviceSchema = new mongoose.Schema({
     default: 'stealth',
   },
   // PRIV-05: the Reality UUID is a live credential (with the node's public
-  // key + shortId, anyone holding it can build a working VLESS link), so it
-  // is stored AES-256-GCM encrypted (encryptPrivateKey envelope, key =
-  // WG_ENCRYPTION_KEY) — never in plaintext. Plaintext field xrayUUID was
-  // migrated by scripts/migrate-xray-uuid.js.
+  // key + shortId anyone can build a working VLESS link), so it is stored
+  // AES-256-GCM encrypted. Plaintext xrayUUID was migrated by
+  // scripts/migrate-xray-uuid.js.
   encryptedXrayUUID: {
     type: String,
   },
@@ -49,9 +48,8 @@ const DeviceSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
-  // Terminal lifecycle marker set by admin flows: 'expired' (plan ended) or
-  // 'revoked' (permanent ban). The operative flag remains isActive — status
-  // only records why a device was deactivated.
+  // Terminal lifecycle marker set by admin flows: 'expired' or 'revoked'.
+  // The operative flag remains isActive; status records why it was deactivated.
   status: {
     type: String,
     enum: ['active', 'expired', 'revoked'],
@@ -87,12 +85,15 @@ const DeviceSchema = new mongoose.Schema({
   toJSON: {
     transform(doc, ret) {
       delete ret.wgPrivateKey;
-      // The Reality UUID is a usable credential (with the node's public key +
-      // shortId, anyone holding it can build a working VLESS link). It must
-      // never leave the server — serialization is the last line of defense
-      // after the per-route .select() exclusions.
+      // The Reality UUID is a usable credential — serialization must never
+      // leak it (last line of defense after per-route .select() exclusions).
       delete ret.encryptedXrayUUID;
       delete ret.__v;
+      // Frontend addresses devices by `id` everywhere (Dashboard, DeviceCard,
+      // ModeToggle). Mongoose's default toJSON does not emit the `id` virtual,
+      // so we add it here rather than scattering `_id` references across the
+      // SPA. `_id` is kept for any consumer that wants the raw ObjectId.
+      if (ret._id) ret.id = String(ret._id);
       return ret;
     },
   },
