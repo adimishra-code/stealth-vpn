@@ -38,6 +38,7 @@ async function runPurgePass() {
     // Belt-and-braces before the hard delete: anything still live on a node
     // (e.g. revocation failed at request time) gets revoked now.
     const devices = await Device.find({ userId: user._id, isActive: true });
+    let revokeFailed = false;
     for (const device of devices) {
       try {
         await provisioning.revokeDevice(device, { status: 'revoked' });
@@ -50,8 +51,13 @@ async function runPurgePass() {
           error: err.message,
         });
         alertCronFailure('purge', err);
-        continue;
+        revokeFailed = true;
       }
+    }
+
+    if (revokeFailed) {
+      // Defer the whole account — next pass will retry revocation.
+      continue;
     }
 
     await Device.deleteMany({ userId: user._id });
