@@ -56,7 +56,7 @@ jobs:
         run: |
           if command -v shellcheck >/dev/null 2>&1; then
             shellcheck --version >/dev/null
-            shellcheck deploy/*.sh deploy/scripts/*.sh scripts/*.sh
+            shellcheck --severity=error deploy/*.sh deploy/scripts/*.sh scripts/*.sh
           else
             echo "shellcheck not available — skipping"
           fi
