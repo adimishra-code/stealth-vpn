@@ -4,7 +4,7 @@ import { useSelector } from 'react-redux'
 import { Link } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
 import { Laptop, Smartphone, Download, QrCode, Trash2, X, Activity, Calendar, RefreshCw } from 'lucide-react'
-import { useGetQrQuery, useDownloadConfigQuery, useRevokeDeviceMutation } from '../features/devices/devicesApi'
+import { useGetQrQuery, useDownloadConfigMutation, useRevokeDeviceMutation } from '../features/devices/devicesApi'
 import { selectUser } from '../features/auth/authSlice'
 import ModeToggle from './ModeToggle'
 
@@ -32,11 +32,11 @@ export default function DeviceCard({ device }) {
   const [confirmRevoke, setConfirmRevoke] = useState(false)
   const [showQr, setShowQr] = useState(false)
   const { data: qrData, refetch: fetchQr, isFetching: qrLoading } = useGetQrQuery(device.id, { skip: !showQr })
-  const { refetch: fetchConfig } = useDownloadConfigQuery(device.id, { skip: true })
+  const [downloadConfigMutation] = useDownloadConfigMutation()
   const [revoke, { isLoading: revoking }] = useRevokeDeviceMutation()
 
   const downloadConfig = async () => {
-    const result = await fetchConfig()
+    const result = await downloadConfigMutation(device.id)
     if (result.data) {
       const blob = new Blob([result.data], { type: 'text/plain' })
       const url = URL.createObjectURL(blob)

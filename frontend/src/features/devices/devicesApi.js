@@ -14,8 +14,8 @@ export const devicesApi = api.injectEndpoints({
       query: (id) => ({ url: `/devices/${id}`, method: 'DELETE' }),
       invalidatesTags: ['Devices'],
     }),
-    downloadConfig: build.query({
-      query: (id) => ({ url: `/devices/${id}/config`, responseHandler: 'text' }),
+    downloadConfig: build.mutation({
+      query: (id) => ({ url: `/devices/${id}/config`, method: 'POST', responseHandler: 'text' }),
     }),
     getQr: build.query({
       query: (id) => ({ url: `/devices/${id}/qr` }),
@@ -34,7 +34,7 @@ export const {
   useListDevicesQuery,
   useAddDeviceMutation,
   useRevokeDeviceMutation,
-  useDownloadConfigQuery,
+  useDownloadConfigMutation,
   useGetQrQuery,
   useToggleModeMutation,
   useGetBandwidthQuery,

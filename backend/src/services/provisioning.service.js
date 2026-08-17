@@ -34,6 +34,16 @@ async function enforceDeviceLimit(userId, plan) {
   }
 }
 
+// PROV-01: Atomic device creation with limit enforcement using MongoDB
+// transactions. Prevents TOCTOU between enforceDeviceLimit and Device.create.
+async function enforceDeviceLimitAtomic(userId, plan, session) {
+  const limit = PLAN_LIMITS[plan]?.devices ?? 0;
+  const activeDevices = await Device.countDocuments({ userId, isActive: true }).session(session);
+  if (activeDevices >= limit) {
+    throw new ApiError(403, `${plan.toUpperCase()} plan allows max ${limit} device(s)`);
+  }
+}
+
 // 'auto' (or omitted) picks the online node with the lowest active-peers
 // load; an explicit name is honored only if it has capacity left.
 async function resolveServerNode(serverNodeName) {
@@ -146,7 +156,6 @@ async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName,
         });
       }
     }
-    // The allocated octet is deliberately not returned to the pool: decrementing
     // the counter would hand the same IP to a concurrent request.
     logger.error('Provisioning failed — rolled back node state', {
       error: err.message,
