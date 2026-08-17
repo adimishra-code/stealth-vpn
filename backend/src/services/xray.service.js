@@ -1,6 +1,7 @@
 const env = require('../config/env');
 const { sshConnect } = require('./vpn.service');
 const logger = require('../config/logger');
+const { isValidUUID } = require('../utils/crypto');
 
 const FLOW_VISION = 'xtls-rprx-vision';
 
@@ -33,6 +34,9 @@ function buildVlessUri({ serverNode, uuid, deviceName, nodeKeys, sni = env.XRAY_
 }
 
 async function addXrayUser({ serverNode, uuid, flow = FLOW_VISION }) {
+  if (!isValidUUID(uuid)) {
+    throw new Error(`Invalid UUID format: ${uuid}`);
+  }
   const ssh = await sshConnect(serverNode);
   const cmd = `sudo -n xray api adduser \
       --server=${apiServer()} \
@@ -51,6 +55,9 @@ async function addXrayUser({ serverNode, uuid, flow = FLOW_VISION }) {
 }
 
 async function removeXrayUser({ serverNode, uuid }) {
+  if (!isValidUUID(uuid)) {
+    throw new Error(`Invalid UUID format: ${uuid}`);
+  }
   const ssh = await sshConnect(serverNode);
   const cmd = `sudo -n xray api removeuser \
       --server=${apiServer()} \

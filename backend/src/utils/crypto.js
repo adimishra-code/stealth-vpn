@@ -72,6 +72,14 @@ function randomUUID() {
   return crypto.randomUUID();
 }
 
+// Strict validation for UUID format (RFC 4122). Prevents shell injection
+// if UUID origin changes in the future.
+function isValidUUID(value) {
+  if (typeof value !== 'string') return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(value);
+}
+
 // SHA-256 digest for high-entropy secrets stored in the DB (verify/reset
 // tokens, refresh tokens). The raw value only ever exists in the email link
 // and the request body — a DB leak exposes nothing replayable.
@@ -86,4 +94,5 @@ module.exports = {
   randomUUID,
   hashToken,
   CRYPTO_PURPOSES,
+  isValidUUID,
 };
