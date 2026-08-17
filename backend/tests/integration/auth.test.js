@@ -16,6 +16,7 @@ jest.mock('../../src/models/User', () => {
       this._id = `u${mockIdSeq++}`;
       this.isActive = true;
       this.refreshTokens = [];
+      this.activeSessions = [];
       mockUsers.push(this);
     }
 
@@ -33,11 +34,21 @@ jest.mock('../../src/models/User', () => {
     }
 
     static async findOneAndUpdate(query, update) {
-      const user = findUser(
-        (u) => u._id === query._id && (u.refreshTokens || []).includes(query.refreshTokens)
-      );
+      // SESSION-02: Support JTI-based session queries
+      const user = findUser((u) => {
+        if (u._id !== query._id) return false;
+        if (query['activeSessions.jti']) {
+          return (u.activeSessions || []).some((s) => s.jti === query['activeSessions.jti']);
+        }
+        return (u.refreshTokens || []).includes(query.refreshTokens);
+      });
       if (!user) return null;
-      if (update.$pull) {
+      if (update.$pull && update.$pull.activeSessions) {
+        user.activeSessions = (user.activeSessions || []).filter(
+          (s) => s.jti !== update.$pull.activeSessions.jti
+        );
+      }
+      if (update.$pull && update.$pull.refreshTokens) {
         user.refreshTokens = (user.refreshTokens || []).filter((t) => t !== update.$pull.refreshTokens);
       }
       return user;
@@ -46,10 +57,22 @@ jest.mock('../../src/models/User', () => {
     static async updateOne(query, update) {
       const user = findUser((u) => u._id === query._id);
       if (!user) return { modifiedCount: 0 };
-      if (update.$pull) {
+      // SESSION-02: Handle activeSessions operations
+      if (update.$pull && update.$pull.activeSessions) {
+        user.activeSessions = (user.activeSessions || []).filter(
+          (s) => s.jti !== update.$pull.activeSessions.jti
+        );
+      }
+      if (update.$pull && update.$pull.refreshTokens) {
         user.refreshTokens = (user.refreshTokens || []).filter((t) => t !== update.$pull.refreshTokens);
       }
-      if (update.$push) {
+      if (update.$push && update.$push.activeSessions) {
+        user.activeSessions = (user.activeSessions || []);
+        const newSessions = update.$push.activeSessions.$each;
+        const slice = update.$push.activeSessions.$slice || Infinity;
+        user.activeSessions = [...user.activeSessions, ...newSessions].slice(-slice);
+      }
+      if (update.$push && update.$push.refreshTokens) {
         user.refreshTokens = [
           ...(user.refreshTokens || []),
           ...update.$push.refreshTokens.$each,
@@ -58,11 +81,20 @@ jest.mock('../../src/models/User', () => {
       if (update.$set && Array.isArray(update.$set.refreshTokens)) {
         user.refreshTokens = update.$set.refreshTokens;
       }
+      if (update.$set && Array.isArray(update.$set.activeSessions)) {
+        user.activeSessions = update.$set.activeSessions;
+      }
       if (update.$set && Object.prototype.hasOwnProperty.call(update.$set, 'totpEnabled')) {
         user.totpEnabled = update.$set.totpEnabled;
       }
       if (update.$set && Object.prototype.hasOwnProperty.call(update.$set, 'totpSecretEnc')) {
         user.totpSecretEnc = update.$set.totpSecretEnc;
+      }
+      if (update.$set && Object.prototype.hasOwnProperty.call(update.$set, 'totpFailedAttempts')) {
+        user.totpFailedAttempts = update.$set.totpFailedAttempts;
+      }
+      if (update.$set && Object.prototype.hasOwnProperty.call(update.$set, 'totpLockedUntil')) {
+        user.totpLockedUntil = update.$set.totpLockedUntil;
       }
       if (update.$unset) {
         delete user.totpSecretEnc;

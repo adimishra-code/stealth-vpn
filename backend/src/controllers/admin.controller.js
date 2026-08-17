@@ -35,7 +35,7 @@ exports.listUsers = asyncHandler(async (req, res) => {
 
   const [users, total] = await Promise.all([
     User.find(filter)
-      .select('-passwordHash -refreshTokens -emailVerifyToken -emailVerifyExpires -passwordResetToken -passwordResetExpires')
+      .select('-passwordHash -refreshTokens -activeSessions -totpSecretEnc -emailVerifyToken -emailVerifyExpires -passwordResetToken -passwordResetExpires')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit),

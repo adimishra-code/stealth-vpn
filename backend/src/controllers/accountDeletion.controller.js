@@ -23,6 +23,7 @@ exports.requestAccountDeletion = asyncHandler(async (req, res) => {
   const deletionScheduledAt = new Date(Date.now() + PURGE_GRACE_DAYS * 86400000);
   user.deletionScheduledAt = deletionScheduledAt;
   user.refreshTokens = [];
+  user.activeSessions = [];
   await user.save();
 
   // Best-effort revocation now; the purge cron re-revokes anything missed

@@ -51,6 +51,14 @@ const UserSchema = new mongoose.Schema({
 
   refreshTokens: [String],
 
+  // SESSION-02: JTI-based refresh token tracking replaces hash array to prevent
+  // concurrent refresh race conditions. Each session stores the jti (JWT ID) from
+  // the refresh token payload, enabling atomic rotation via JTI lookup.
+  activeSessions: [{
+    jti: String,
+    createdAt: { type: Date, default: Date.now },
+  }],
+
   // ADMIN-01: TOTP 2FA for admin accounts. The secret is stored AES-256-GCM
   // encrypted (WG_ENCRYPTION_KEY envelope); totpEnabled is the operative
   // flag — setup re-generates the secret, disabling clears it.

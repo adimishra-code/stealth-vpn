@@ -10,7 +10,7 @@ async function authMiddleware(req, res, next) {
     }
     const token = header.split(' ')[1];
     const decoded = verifyAccessToken(token);
-    const user = await User.findById(decoded.sub).select('-passwordHash -refreshTokens');
+    const user = await User.findById(decoded.sub).select('-passwordHash -refreshTokens -activeSessions -totpSecretEnc');
     if (!user) throw new ApiError(401, 'User not found');
     if (!user.isActive) throw new ApiError(403, 'Account suspended');
     req.user = user;

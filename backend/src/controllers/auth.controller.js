@@ -178,11 +178,18 @@ exports.login = asyncHandler(async (req, res) => {
 
   const accessToken = signAccessToken(user);
   const refreshToken = signRefreshToken(user);
+  const { jti } = verifyRefreshToken(refreshToken);
 
   user.refreshTokens = user.refreshTokens || [];
   user.refreshTokens.push(hashRefreshToken(refreshToken));
   if (user.refreshTokens.length > MAX_ACTIVE_SESSIONS) {
     user.refreshTokens = user.refreshTokens.slice(-MAX_ACTIVE_SESSIONS);
+  }
+  // SESSION-02: initialize JTI-based sessions for new logins
+  user.activeSessions = user.activeSessions || [];
+  user.activeSessions.push({ jti, createdAt: new Date() });
+  if (user.activeSessions.length > MAX_ACTIVE_SESSIONS) {
+    user.activeSessions = user.activeSessions.slice(-MAX_ACTIVE_SESSIONS);
   }
   await user.save();
 
@@ -213,19 +220,17 @@ exports.refresh = asyncHandler(async (req, res) => {
     throw new ApiError(401, 'Invalid refresh token');
   }
 
-  const presentedHash = hashRefreshToken(token);
-
-  // Atomically consume the presented token. Zero matches = already rotated
-  // away — replay or theft — so every session for the account is dropped.
+  // SESSION-02: Atomically consume the presented JTI. If the JTI is not found
+  // in activeSessions, it's been rotated away (replay/theft), so revoke all.
   const user = await User.findOneAndUpdate(
-    { _id: decoded.sub, refreshTokens: presentedHash },
-    { $pull: { refreshTokens: presentedHash } },
+    { _id: decoded.sub, 'activeSessions.jti': decoded.jti },
+    { $pull: { activeSessions: { jti: decoded.jti } } },
     { new: true }
   );
 
   if (!user) {
     clearRefreshCookie(res);
-    await User.updateOne({ _id: decoded.sub }, { $set: { refreshTokens: [] } });
+    await User.updateOne({ _id: decoded.sub }, { $set: { activeSessions: [] } });
     logger.warn('Refresh token reuse detected — all sessions revoked', { userId: decoded.sub });
     throw new ApiError(401, 'Refresh token revoked');
   }
@@ -237,13 +242,21 @@ exports.refresh = asyncHandler(async (req, res) => {
 
   const newAccessToken = signAccessToken(user);
   const newRefreshToken = signRefreshToken(user);
-  // Step 2 of rotation: the pull (above) and this push are deliberately two
-  // writes — a crash between them leaves this session logged out (safe), and
-  // a replay of the old token in that window finds zero docs and wipes all
-  // sessions instead of succeeding.
+  const { jti: newJti } = verifyRefreshToken(newRefreshToken);
+
+  // SESSION-02: atomically issue new JTI. The pull (above) and this push are
+  // deliberately two writes — a crash between them leaves the session logged out
+  // (safe), and a replay of the old token finds the JTI missing and wipes all.
   await User.updateOne(
     { _id: user._id },
-    { $push: { refreshTokens: { $each: [hashRefreshToken(newRefreshToken)], $slice: -MAX_ACTIVE_SESSIONS } } }
+    {
+      $push: {
+        activeSessions: {
+          $each: [{ jti: newJti, createdAt: new Date() }],
+          $slice: -MAX_ACTIVE_SESSIONS,
+        },
+      },
+    }
   );
 
   setRefreshCookie(res, newRefreshToken);
@@ -255,9 +268,10 @@ exports.logout = asyncHandler(async (req, res) => {
   if (token) {
     try {
       const decoded = verifyRefreshToken(token);
+      // SESSION-02: revoke by JTI instead of token hash
       await User.updateOne(
         { _id: decoded.sub },
-        { $pull: { refreshTokens: hashRefreshToken(token) } }
+        { $pull: { activeSessions: { jti: decoded.jti } } }
       );
     } catch {
       // invalid token — nothing to revoke
@@ -267,10 +281,10 @@ exports.logout = asyncHandler(async (req, res) => {
   res.json({ message: 'Logged out' });
 });
 
-// SESSION-01 — log out every device: wipes all refresh tokens so no session
-// can rotate again; the access token dies at its short expiry.
+// SESSION-01 — log out every device: wipes all active sessions so no refresh
+// token can rotate again; the access token dies at its short expiry.
 exports.logoutAll = asyncHandler(async (req, res) => {
-  await User.updateOne({ _id: req.user._id }, { $set: { refreshTokens: [] } });
+  await User.updateOne({ _id: req.user._id }, { $set: { activeSessions: [] } });
   clearRefreshCookie(res);
   logger.info('All sessions revoked by user', { userId: req.user._id.toString() });
   res.json({ message: 'All devices signed out', sessionsRevoked: true });
