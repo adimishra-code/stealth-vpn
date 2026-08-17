@@ -35,7 +35,7 @@ const {
   cookieName: 'sv_csrf',
   cookieOptions: {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: 'strict',
     secure: env.NODE_ENV === 'production',
     path: '/',
   },
@@ -52,7 +52,25 @@ function createApp() {
   app.set('trust proxy', env.TRUST_PROXY);
 
   // ── Security headers ─────────────────────────────────────────────────────
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:'],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+          formAction: ["'self'"],
+          upgradeInsecureRequests: env.NODE_ENV === 'production' ? [] : null,
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+    })
+  );
   app.use(
     cors({
       origin: env.FRONTEND_URL,

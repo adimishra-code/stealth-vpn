@@ -7,6 +7,7 @@ const { generateQRBase64 } = require('../utils/qrcode');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
 const logger = require('../config/logger');
 const { nextQuotaResetAt } = require('../services/bandwidth.service');
+const { audit } = require('../services/audit.service');
 
 exports.listDevices = asyncHandler(async (req, res) => {
   const devices = await Device.find({ userId: req.user._id })
@@ -33,6 +34,16 @@ exports.addDevice = asyncHandler(async (req, res) => {
     mode,
   });
 
+  audit({
+    adminId: user._id,
+    actorType: 'user',
+    action: 'device.provision',
+    targetType: 'device',
+    targetId: result.device.id.toString(),
+    details: { plan: user.plan, serverNode: result.device.serverNode },
+    ip: req.ip,
+  });
+
   res.status(201).json(result);
 });
 
@@ -50,6 +61,16 @@ exports.revokeDevice = asyncHandler(async (req, res) => {
     });
     throw new ApiError(503, 'Could not reach the VPN node. Device is still active — please retry.');
   }
+
+  audit({
+    adminId: req.user._id,
+    actorType: 'user',
+    action: 'device.revoke',
+    targetType: 'device',
+    targetId: device._id.toString(),
+    details: { deviceName: device.deviceName },
+    ip: req.ip,
+  });
 
   res.json({ message: 'Device revoked', deviceId: device._id });
 });

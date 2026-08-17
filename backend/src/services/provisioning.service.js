@@ -11,6 +11,7 @@ const logger = require('../config/logger');
 const { ApiError } = require('../utils/ApiError');
 const emailService = require('./email.service');
 const { PLAN_DURATION_DAYS } = require('./payment.service');
+const { redlock } = require('../config/redis');
 
 const PLAN_LIMITS = {
   free: { devices: 0 },
@@ -81,13 +82,21 @@ function nodeRealityKeys(serverNodeName) {
 }
 
 // ── Per-user provisioning lock ───────────────────────────────────────────────
-// Two concurrent payments can both pass enforceDeviceLimit before either
-// creates a row (TOCTOU). Single-instance PM2 makes an in-process mutex
-// enough: serialize per user, second caller re-checks. Exported for tests.
+// When Redis is available, Redlock serializes per user across all workers.
+// When it is not (dev/test), the in-process Map-based mutex is used instead.
+// The exported name and shape stay identical so tests do not need changes.
 const userLocks = new Map(); // userId -> Promise
+const LOCK_TTL_MS = 15_000; // 15 s: enough for full provision round-trip
 
 function withUserLock(userId, fn) {
   const key = String(userId);
+
+  if (redlock) {
+    // Redlock auto-extends and releases; a crash releases after TTL.
+    return redlock.using([`lock:provision:${key}`], LOCK_TTL_MS, fn);
+  }
+
+  // In-process fallback (single-instance PM2 / test environment).
   const prev = userLocks.get(key) || Promise.resolve();
   const run = prev.catch(() => {}).then(fn);
   const settled = run.finally(() => {

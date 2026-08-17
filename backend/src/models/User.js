@@ -83,6 +83,7 @@ const UserSchema = new mongoose.Schema({
     default: Date.now,
   },
 }, {
+  optimisticConcurrency: true,
   toJSON: {
     transform(doc, ret) {
       delete ret.passwordHash;

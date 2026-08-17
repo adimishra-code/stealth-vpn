@@ -16,6 +16,10 @@ const envSchema = z.object({
   // keys on req.ip — 0 behind a proxy lets one user rate-limit everyone.
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 
+  // Optional Redis URL for distributed locking and rate limiter store.
+  // When absent, falls back to in-memory mutex and MemoryStore.
+  REDIS_URL: z.string().url().optional(),
+
   // CSRF-02: server-side secret for the double-submit token (doubleCsrf
   // signs the token cookie). Rotate like any secret; no login needed.
   CSRF_SECRET: z.string().min(32),

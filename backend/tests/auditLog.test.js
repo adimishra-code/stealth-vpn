@@ -17,6 +17,7 @@ describe('Audit log service (ADMIN-02)', () => {
   test('writes the full payload (who did what to whom, from where)', async () => {
     const payload = {
       adminId: 'admin-1',
+      actorType: 'admin',
       action: 'device.expire',
       targetType: 'device',
       targetId: 'dev-1',

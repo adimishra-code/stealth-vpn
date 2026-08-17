@@ -6,6 +6,8 @@ const paymentService = require('../services/payment.service');
 const webhookService = require('../services/webhook.service');
 const provisioningService = require('../services/provisioning.service');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
+const { alertError } = require('../services/alert.service');
+const { audit } = require('../services/audit.service');
 
 exports.createOrder = asyncHandler(async (req, res) => {
   const { plan } = req.body;
@@ -79,6 +81,16 @@ exports.verifyPayment = asyncHandler(async (req, res) => {
     await Invoice.updateOne({ _id: invoice._id }, { $set: { status: 'pending' } });
     throw err;
   }
+
+  audit({
+    adminId: user._id,
+    actorType: 'user',
+    action: 'payment.plan-change',
+    targetType: 'user',
+    targetId: user._id.toString(),
+    details: { plan: invoice.plan, gateway: 'razorpay', invoiceId: invoice._id.toString() },
+    ip: req.ip,
+  });
 
   logger.info('Razorpay payment verified + device provisioned', {
     userId: user._id.toString(),
@@ -165,6 +177,16 @@ exports.stripeConfirm = asyncHandler(async (req, res) => {
     throw err;
   }
 
+  audit({
+    adminId: user._id,
+    actorType: 'user',
+    action: 'payment.plan-change',
+    targetType: 'user',
+    targetId: user._id.toString(),
+    details: { plan: invoice.plan, gateway: 'stripe', invoiceId: invoice._id.toString() },
+    ip: req.ip,
+  });
+
   logger.info('Stripe confirmed + device provisioned', {
     userId: user._id.toString(),
     deviceId: result.device.id.toString(),
@@ -221,6 +243,12 @@ exports.webhook = asyncHandler(async (req, res) => {
     const event = paymentService.verifyStripeWebhook(raw, stripeSig);
     if (!event) {
       logger.warn('Stripe webhook signature invalid');
+      alertError({
+        source: 'webhook.stripe',
+        title: 'Stripe webhook — invalid signature',
+        message: 'Invalid HMAC on incoming Stripe webhook',
+        details: { ip: req.ip },
+      });
       return res.status(400).json({ error: 'Invalid signature' });
     }
     logger.info('Stripe webhook', { type: event.type });
@@ -273,5 +301,11 @@ exports.webhook = asyncHandler(async (req, res) => {
   }
 
   logger.warn('Webhook received with no signature header');
+  alertError({
+    source: 'webhook',
+    title: 'Webhook received with no signature header',
+    message: 'Unsigned webhook request — possible probe or misconfigured gateway',
+    details: { ip: req.ip },
+  });
   return res.status(400).json({ error: 'No valid signature' });
 });

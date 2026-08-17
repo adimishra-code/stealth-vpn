@@ -7,6 +7,8 @@ const { setRefreshCookie, clearRefreshCookie, getRefreshCookie } = require('../u
 const { ApiError, asyncHandler } = require('../utils/ApiError');
 const emailService = require('../services/email.service');
 const logger = require('../config/logger');
+const { alertError } = require('../services/alert.service');
+const { audit } = require('../services/audit.service');
 
 const VERIFY_TOKEN_TTL_HOURS = 24;
 const RESET_TOKEN_TTL_HOURS = 1;
@@ -53,6 +55,12 @@ async function recordTotpFailure(user) {
     logger.warn('TOTP account locked due to brute-force attempts', {
       userId: user._id.toString(),
       attempts: newAttempts,
+    });
+    alertError({
+      source: 'auth.totp',
+      title: `TOTP brute-force lockout — userId ${user._id}`,
+      message: `Account locked after ${newAttempts} failed TOTP attempts`,
+      details: { userId: user._id.toString() },
     });
   }
 
@@ -196,6 +204,15 @@ exports.login = asyncHandler(async (req, res) => {
   setRefreshCookie(res, refreshToken);
   logger.info('User logged in', { userId: user._id.toString(), email: user.email });
 
+  audit({
+    adminId: user._id,
+    actorType: 'user',
+    action: 'auth.login',
+    targetType: 'user',
+    targetId: user._id.toString(),
+    ip: req.ip,
+  });
+
   res.json({
     accessToken,
     user: publicUser(user),
@@ -232,6 +249,12 @@ exports.refresh = asyncHandler(async (req, res) => {
     clearRefreshCookie(res);
     await User.updateOne({ _id: decoded.sub }, { $set: { activeSessions: [] } });
     logger.warn('Refresh token reuse detected — all sessions revoked', { userId: decoded.sub });
+    alertError({
+      source: 'auth.refresh',
+      title: `Refresh token replay detected — userId ${decoded.sub}`,
+      message: 'Possible session theft: all sessions revoked',
+      details: { userId: decoded.sub },
+    });
     throw new ApiError(401, 'Refresh token revoked');
   }
 
@@ -273,6 +296,14 @@ exports.logout = asyncHandler(async (req, res) => {
         { _id: decoded.sub },
         { $pull: { activeSessions: { jti: decoded.jti } } }
       );
+      audit({
+        adminId: decoded.sub,
+        actorType: 'user',
+        action: 'auth.logout',
+        targetType: 'user',
+        targetId: decoded.sub,
+        ip: req.ip,
+      });
     } catch {
       // invalid token — nothing to revoke
     }
@@ -413,5 +444,15 @@ exports.resetPassword = asyncHandler(async (req, res) => {
   await user.save();
 
   logger.info('Password reset', { userId: user._id.toString() });
+
+  audit({
+    adminId: user._id,
+    actorType: 'user',
+    action: 'auth.password-reset',
+    targetType: 'user',
+    targetId: user._id.toString(),
+    ip: req.ip,
+  });
+
   res.json({ message: 'Password updated. You can now log in.' });
 });

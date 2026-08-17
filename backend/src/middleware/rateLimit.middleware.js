@@ -1,8 +1,37 @@
 const rateLimit = require('express-rate-limit');
+const { redis } = require('../config/redis');
+
+// Minimal express-rate-limit v7 Store backed by ioredis.
+// Returns undefined (use MemoryStore default) when Redis is absent.
+function makeRedisStore(prefix) {
+  if (!redis) return undefined;
+
+  return {
+    async increment(key) {
+      const redisKey = `rl:${prefix}:${key}`;
+      const [count] = await redis
+        .multi()
+        .incr(redisKey)
+        .expire(redisKey, Math.ceil(this.windowMs / 1000))
+        .exec();
+      return { totalHits: count[1], resetTime: new Date(Date.now() + this.windowMs) };
+    },
+    async decrement(key) {
+      await redis.decr(`rl:${prefix}:${key}`);
+    },
+    async resetKey(key) {
+      await redis.del(`rl:${prefix}:${key}`);
+    },
+    init({ windowMs }) {
+      this.windowMs = windowMs;
+    },
+  };
+}
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
+  store: makeRedisStore('auth'),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Try again in 15 minutes.' },
@@ -11,6 +40,7 @@ const authLimiter = rateLimit({
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 3,
+  store: makeRedisStore('register'),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many registration attempts. Try again in 1 hour.' },
@@ -21,6 +51,7 @@ const registerLimiter = rateLimit({
 const forgotPasswordLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
+  store: makeRedisStore('forgotpw'),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => `${req.ip}:${String((req.body && req.body.email) || '').toLowerCase()}`,
@@ -30,6 +61,7 @@ const forgotPasswordLimiter = rateLimit({
 const paymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
+  store: makeRedisStore('payment'),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => (req.user ? req.user._id.toString() : req.ip),
@@ -39,6 +71,7 @@ const paymentLimiter = rateLimit({
 const paymentVerifyLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 10,
+  store: makeRedisStore('paymentverify'),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => (req.user ? req.user._id.toString() : req.ip),
@@ -48,6 +81,7 @@ const paymentVerifyLimiter = rateLimit({
 const deviceLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
+  store: makeRedisStore('device'),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => (req.user ? req.user._id.toString() : req.ip),
@@ -57,6 +91,7 @@ const deviceLimiter = rateLimit({
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
+  store: makeRedisStore('admin'),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many admin requests.' },
@@ -65,6 +100,7 @@ const adminLimiter = rateLimit({
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
+  store: makeRedisStore('api'),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Slow down.' },
@@ -75,6 +111,7 @@ const apiLimiter = rateLimit({
 const clientErrorLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 30,
+  store: makeRedisStore('clienterr'),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many error reports.' },
