@@ -243,22 +243,45 @@ async function revokeDevice(device, { status } = {}) {
     return;
   }
 
-  // Deliberately not caught: a still-live peer must keep the device active so
-  // a retry happens — marking it inactive would report revoked while the
-  // user keeps working VPN access.
-  if (device.encryptedXrayUUID) {
-    await xray.removeXrayUser({ serverNode: node, uuid: decryptPrivateKey(device.encryptedXrayUUID) });
-  }
-  await vpn.revokePeer({
-    serverNode: node,
-    publicKey: device.wgPublicKey,
-    tcHandle: device.tcHandle,
-  });
+  try {
+    // Deliberately not caught: a still-live peer must keep the device active so
+    // a retry happens — marking it inactive would report revoked while the
+    // user keeps working VPN access.
+    if (device.encryptedXrayUUID) {
+      await xray.removeXrayUser({ serverNode: node, uuid: decryptPrivateKey(device.encryptedXrayUUID) });
+    }
+    await vpn.revokePeer({
+      serverNode: node,
+      publicKey: device.wgPublicKey,
+      tcHandle: device.tcHandle,
+    });
 
-  device.isActive = false;
-  if (status) device.status = status;
-  await device.save();
-  logger.info('Device revoked', { deviceId: device._id.toString(), status: status || 'active' });
+    device.isActive = false;
+    if (status) device.status = status;
+    device.revokeFailedAt = null;
+    device.revokeRetryCount = 0;
+    device.revokeRetryUntil = null;
+    await device.save();
+    logger.info('Device revoked', { deviceId: device._id.toString(), status: status || 'active' });
+  } catch (err) {
+    // REVOKE-01: Mark device for retry with exponential backoff
+    const retryCount = (device.revokeRetryCount || 0) + 1;
+    const backoffMinutes = Math.min(60, Math.pow(2, retryCount - 1)); // 1, 2, 4, 8... 60 min
+    const retryUntil = new Date(Date.now() + backoffMinutes * 60 * 1000);
+
+    device.revokeFailedAt = device.revokeFailedAt || new Date();
+    device.revokeRetryCount = retryCount;
+    device.revokeRetryUntil = retryUntil;
+    await device.save();
+
+    logger.warn('Device revocation failed — scheduled for retry', {
+      deviceId: device._id.toString(),
+      retryCount,
+      retryUntil,
+      error: err.message,
+    });
+    throw err;
+  }
 }
 
 // Re-adds a previously revoked/expired device to its node and reactivates it

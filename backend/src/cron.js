@@ -10,6 +10,7 @@ const { startHealthCheckCron, startWeeklyTlsCheckCron } = require('./cron/health
 const { startBandwidthSnapshotCron } = require('./cron/bandwidthSnapshot.cron');
 const { startPendingInvoiceCron } = require('./cron/pendingInvoice.cron');
 const { startPurgeCron } = require('./cron/purgeExpiredData.cron');
+const { startRevocationRetryCron } = require('./cron/revocationRetry.cron');
 
 // Dedicated cron worker (PM2 app "stealth-vpn-cron", see
 // deploy/ecosystem.config.cjs). Runs ONLY the scheduled jobs — no HTTP
@@ -36,6 +37,7 @@ async function start() {
   startBandwidthSnapshotCron();
   startPendingInvoiceCron();
   startPurgeCron();
+  startRevocationRetryCron();
   logger.info('Cron jobs started (dedicated worker)');
 
   // No HTTP server here to keep the event loop alive — hold it explicitly.

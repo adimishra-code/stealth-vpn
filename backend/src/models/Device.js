@@ -77,6 +77,10 @@ const DeviceSchema = new mongoose.Schema({
   },
   tcHandle: String,
   lastSeen: Date,
+  // REVOKE-01: Track failed revocation attempts for retry mechanism
+  revokeFailedAt: Date,
+  revokeRetryCount: { type: Number, default: 0 },
+  revokeRetryUntil: Date,
   createdAt: {
     type: Date,
     default: Date.now,
@@ -105,5 +109,7 @@ DeviceSchema.index({ serverNode: 1, assignedIP: 1 }, { unique: true });
 DeviceSchema.index({ serverNode: 1, isActive: 1 });
 // Device-limit enforcement and per-user listing hot path.
 DeviceSchema.index({ userId: 1, isActive: 1 });
+// REVOKE-01: Revocation retry queries
+DeviceSchema.index({ revokeRetryUntil: 1 }, { sparse: true });
 
 module.exports = mongoose.model('Device', DeviceSchema);
