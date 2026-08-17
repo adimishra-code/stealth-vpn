@@ -2,15 +2,16 @@
 // Razorpay orders to the checkout overlay, and Stripe sessions to the
 // redirect URL. API hooks are mocked; razorpay is stubbed at the window.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Billing from '../../pages/Billing'
 import { renderWithProviders } from '../../test/test-utils'
 
-const { createOrder, createStripeSession, verifyPayment } = vi.hoisted(() => ({
+const { createOrder, createStripeSession, verifyPayment, confirmStripe } = vi.hoisted(() => ({
   createOrder: vi.fn(),
   createStripeSession: vi.fn(),
   verifyPayment: vi.fn(),
+  confirmStripe: vi.fn(),
 }))
 
 vi.mock('../../features/payment/paymentApi', () => ({
@@ -23,6 +24,7 @@ vi.mock('../../features/payment/paymentApi', () => ({
   useCreateOrderMutation: () => [createOrder, { isLoading: false }],
   useCreateStripeSessionMutation: () => [createStripeSession, { isLoading: false }],
   useVerifyPaymentMutation: () => [verifyPayment, { isLoading: false }],
+  useConfirmStripeMutation: () => [confirmStripe, { isLoading: false }],
 }))
 
 vi.mock('../../utils/razorpay', () => ({
@@ -101,10 +103,12 @@ describe('Billing page (PAY-03)', () => {
 
     // Drive the Razorpay success handler and assert the delivery modal
     // opens (config + QR delivered) instead of a full-page reload.
-    window.__lastRzpHandler({
-      razorpay_payment_id: 'pay_1',
-      razorpay_order_id: 'order_xyz',
-      razorpay_signature: 'sig',
+    await act(async () => {
+      await window.__lastRzpHandler({
+        razorpay_payment_id: 'pay_1',
+        razorpay_order_id: 'order_xyz',
+        razorpay_signature: 'sig',
+      })
     })
 
     await waitFor(() => expect(verifyPayment).toHaveBeenCalled())
@@ -120,7 +124,7 @@ describe('Billing page (PAY-03)', () => {
 
     await waitFor(() =>
       expect(createStripeSession).toHaveBeenCalledWith(
-        expect.objectContaining({ plan: 'basic', successUrl: expect.stringContaining('/billing?success=1') })
+        expect.objectContaining({ plan: 'basic', successUrl: expect.stringContaining('/billing?session_id=') })
       )
     )
     await waitFor(() =>

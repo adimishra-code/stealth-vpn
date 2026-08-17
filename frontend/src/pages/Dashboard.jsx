@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux'
 import { Link } from 'react-router'
 import { selectUser, setUser } from '../features/auth/authSlice'
 import { useDispatch } from 'react-redux'
-import { useListDevicesQuery } from '../features/devices/devicesApi'
+import { useListDevicesQuery, useAddDeviceMutation } from '../features/devices/devicesApi'
 import { useListServersQuery } from '../features/devices/serverApi'
 import { useCreateOrderMutation, useVerifyPaymentMutation } from '../features/payment/paymentApi'
 import DeviceCard from '../components/DeviceCard'
@@ -19,6 +19,7 @@ export default function Dashboard() {
   const dispatch = useDispatch()
   const { data: devicesData, isLoading: devicesLoading, isError: devicesError, refetch: refetchDevices } = useListDevicesQuery()
   const { data: serversData, isLoading: serversLoading, isError: serversError } = useListServersQuery()
+  const [addDevice, { isLoading: adding }] = useAddDeviceMutation()
   const [createOrder, { isLoading: creating }] = useCreateOrderMutation()
   const [verifyPayment, { isLoading: verifying }] = useVerifyPaymentMutation()
 
@@ -43,17 +44,30 @@ export default function Dashboard() {
     ? Math.max(0, Math.ceil((new Date(user.planExpiresAt) - new Date()) / 86400000))
     : 0
   const renewingSoon = user?.plan !== 'free' && daysLeft <= 3
+  const hasActivePlan = user?.plan && user.plan !== 'free' && daysLeft > 0
+  const canAddEntitledDevice = hasActivePlan && activeDevices < limit
 
-  const handleCreateOrder = async (e) => {
+  const handleAddDeviceSubmit = async (e) => {
     e.preventDefault()
     setError(null)
-    try {
-      const res = await createOrder({ plan, serverNode, deviceName, mode }).unwrap()
-      setOrderId(res.orderId)
-      setAmount(res.amount)
-      setStep('payment')
-    } catch (err) {
-      setError(err.data?.error || 'Failed to create order')
+
+    if (canAddEntitledDevice) {
+      try {
+        const res = await addDevice({ deviceName, serverNode, mode }).unwrap()
+        setResult(res)
+        setStep('delivery')
+      } catch (err) {
+        setError(err.data?.error || 'Failed to add device')
+      }
+    } else {
+      try {
+        const res = await createOrder({ plan, serverNode, deviceName, mode }).unwrap()
+        setOrderId(res.orderId)
+        setAmount(res.amount)
+        setStep('payment')
+      } catch (err) {
+        setError(err.data?.error || 'Failed to create order')
+      }
     }
   }
 
@@ -249,7 +263,14 @@ export default function Dashboard() {
               {step === 'form' && (
                 <>
                   <div className="flex items-center justify-between mb-6">
-                    <h2 className="font-display text-xl font-semibold text-ink tracking-tight">Add device</h2>
+                    <div>
+                      <h2 className="font-display text-xl font-semibold text-ink tracking-tight">Add device</h2>
+                      {canAddEntitledDevice && (
+                        <p className="text-xs text-faint mt-0.5">
+                          Provisioning under your active {user?.plan?.toUpperCase()} subscription ({activeDevices}/{limit} used)
+                        </p>
+                      )}
+                    </div>
                     <button onClick={() => setShowAdd(false)} className="p-1.5 rounded-lg text-faint hover:text-ink hover:bg-raised transition-colors duration-fast" aria-label="Close">
                       <X size={18} />
                     </button>
@@ -259,7 +280,7 @@ export default function Dashboard() {
                       {error}
                     </div>
                   )}
-                  <form onSubmit={handleCreateOrder} className="space-y-4">
+                  <form onSubmit={handleAddDeviceSubmit} className="space-y-4">
                     <div>
                       <label className="label" htmlFor="dv-name">Device name</label>
                       <input
@@ -290,16 +311,24 @@ export default function Dashboard() {
                         <option value="gaming">Gaming (raw WG — +2–4ms)</option>
                       </select>
                     </div>
-                    <div>
-                      <label className="label" htmlFor="dv-plan">Plan</label>
-                      <select id="dv-plan" className="input" value={plan} onChange={(e) => setPlan(e.target.value)}>
-                        <option value="basic">Basic — ₹99/mo · 1 device</option>
-                        <option value="pro">Pro — ₹199/mo · 3 devices</option>
-                        <option value="team">Team — ₹499/mo · 10 devices</option>
-                      </select>
-                    </div>
-                    <button type="submit" disabled={creating} className="btn-primary w-full disabled:opacity-50">
-                      {creating ? 'Creating order…' : `Continue to payment (₹${(amount || 0) / 100})`}
+                    {!canAddEntitledDevice && (
+                      <div>
+                        <label className="label" htmlFor="dv-plan">Plan</label>
+                        <select id="dv-plan" className="input" value={plan} onChange={(e) => setPlan(e.target.value)}>
+                          <option value="basic">Basic — ₹99/mo · 1 device</option>
+                          <option value="pro">Pro — ₹199/mo · 3 devices</option>
+                          <option value="team">Team — ₹499/mo · 10 devices</option>
+                        </select>
+                      </div>
+                    )}
+                    <button type="submit" disabled={adding || creating} className="btn-primary w-full disabled:opacity-50">
+                      {canAddEntitledDevice
+                        ? adding
+                          ? 'Adding device…'
+                          : 'Add device'
+                        : creating
+                          ? 'Creating order…'
+                          : `Continue to payment (₹${(amount || 0) / 100})`}
                     </button>
                   </form>
                 </>
@@ -334,7 +363,7 @@ export default function Dashboard() {
                   qrDataUrl={result.qrDataUrl}
                   vlessUri={result.vlessUri}
                   vlessQrDataUrl={result.vlessQrDataUrl}
-                  deviceName={deviceName}
+                  deviceName={result.device?.deviceName || deviceName || 'Device'}
                   onClose={() => {
                     setShowAdd(false)
                     setStep('form')

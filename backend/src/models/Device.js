@@ -105,7 +105,7 @@ const DeviceSchema = new mongoose.Schema({
 
 DeviceSchema.index({ userId: 1 });
 DeviceSchema.index({ wgPublicKey: 1 }, { unique: true });
-DeviceSchema.index({ serverNode: 1, assignedIP: 1 }, { unique: true });
+DeviceSchema.index({ serverNode: 1, assignedIP: 1 }, { unique: true, partialFilterExpression: { isActive: true } });
 DeviceSchema.index({ serverNode: 1, isActive: 1 });
 // Device-limit enforcement and per-user listing hot path.
 DeviceSchema.index({ userId: 1, isActive: 1 });

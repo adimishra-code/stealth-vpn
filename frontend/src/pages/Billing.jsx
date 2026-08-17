@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import { selectUser, setUser } from '../features/auth/authSlice'
-import { useListInvoicesQuery, useCreateOrderMutation, useCreateStripeSessionMutation, useVerifyPaymentMutation } from '../features/payment/paymentApi'
+import { useListInvoicesQuery, useCreateOrderMutation, useCreateStripeSessionMutation, useVerifyPaymentMutation, useConfirmStripeMutation } from '../features/payment/paymentApi'
 import { Check, Loader2 } from 'lucide-react'
 import { loadRazorpay } from '../utils/razorpay'
 import { toast } from '../lib/toast'
@@ -28,10 +28,12 @@ export default function Billing() {
   const [createOrder] = useCreateOrderMutation()
   const [createStripeSession] = useCreateStripeSessionMutation()
   const [verifyPayment, { isLoading: verifying }] = useVerifyPaymentMutation()
+  const [confirmStripe, { isLoading: confirmingStripe }] = useConfirmStripeMutation()
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(null)
   const [result, setResult] = useState(null)
   const [pendingPlan, setPendingPlan] = useState(null)
+  const stripeProcessedRef = useRef(false)
 
   const invoices = invoicesData?.invoices || []
 
@@ -58,16 +60,42 @@ export default function Billing() {
   }
 
   useEffect(() => {
-    const success = new URLSearchParams(window.location.search).get('success')
-    if (success) {
-      const lastInvoice = invoicesData?.invoices?.[invoicesData?.invoices.length - 1]
-      if (lastInvoice && lastInvoice.gateway === 'stripe' && lastInvoice.status === 'paid') {
-        toast.success('Payment verified — your VPN is ready')
-      } else {
-        toast.error('Payment verified but invoice not found')
-      }
+    const params = new URLSearchParams(window.location.search)
+    const sessionId = params.get('session_id')
+    const cancelled = params.get('cancelled')
+
+    if (cancelled) {
+      toast.error('Payment checkout was cancelled')
+      window.history.replaceState({}, document.title, window.location.pathname)
+      return
     }
-  }, [invoicesData, user?.plan])
+
+    if (sessionId && !stripeProcessedRef.current) {
+      stripeProcessedRef.current = true
+      window.history.replaceState({}, document.title, window.location.pathname)
+      setPendingPlan('Stripe')
+      confirmStripe({ session_id: sessionId })
+        .unwrap()
+        .then((res) => {
+          if (res.config) {
+            setResult(res)
+          }
+          refetch()
+          toast.success('Payment verified — your VPN is ready')
+        })
+        .catch((err) => {
+          if (err?.data?.alreadyProcessed || err?.status === 409) {
+            refetch()
+            toast.success('Payment verified — your subscription is active')
+          } else {
+            toast.error(err?.data?.error ?? 'Payment confirmation failed')
+          }
+        })
+        .finally(() => {
+          setPendingPlan(null)
+        })
+    }
+  }, [confirmStripe, refetch])
 
   const handleSubscribe = async (plan, gateway) => {
     setError(null)
@@ -101,7 +129,7 @@ export default function Billing() {
           serverNode: 'auto',
           deviceName: 'billing-sub',
           mode: 'stealth',
-          successUrl: `${window.location.origin}/billing?success=1`,
+          successUrl: `${window.location.origin}/billing?session_id={CHECKOUT_SESSION_ID}`,
           cancelUrl: `${window.location.origin}/billing?cancelled=1`,
         }).unwrap()
         window.location.assign(res.sessionUrl)
@@ -241,7 +269,7 @@ export default function Billing() {
         )}
       </div>
 
-      {verifying && pendingPlan && (
+      {(verifying || confirmingStripe) && pendingPlan && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[4px] p-4 animate-fade-in">
           <div className="bg-surface border border-line-strong rounded-2xl shadow-card max-w-sm w-full p-8 text-center">
             <Loader2 size={32} className="text-accent-400 animate-spin mx-auto mb-4" strokeWidth={1.75} />

@@ -159,6 +159,13 @@ exports.stripeConfirm = asyncHandler(async (req, res) => {
     if (!existing) {
       throw new ApiError(404, 'Invoice not found for this session');
     }
+    if (existing.status === 'paid') {
+      return res.json({
+        message: 'Payment already processed and active',
+        invoiceId: existing._id,
+        alreadyProcessed: true,
+      });
+    }
     throw new ApiError(409, 'This payment has already been processed');
   }
 
