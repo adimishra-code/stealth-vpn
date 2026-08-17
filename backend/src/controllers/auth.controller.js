@@ -246,8 +246,26 @@ exports.refresh = asyncHandler(async (req, res) => {
   );
 
   if (!user) {
+    // Check if this JTI was rotated within the 10-second grace window (multi-tab race)
+    const existingUser = await User.findOne({ _id: decoded.sub });
+    const now = Date.now();
+    const recentMatch = existingUser?.recentRotations?.find(
+      (r) => r.oldJti === decoded.jti && (now - new Date(r.rotatedAt).getTime()) < 10000
+    );
+
+    if (recentMatch && existingUser.isActive) {
+      logger.info('Refresh token rotation grace window hit — issuing access token without rotation', {
+        userId: decoded.sub,
+        oldJti: decoded.jti,
+        newJti: recentMatch.newJti,
+        rotatedAt: recentMatch.rotatedAt,
+      });
+      const accessToken = signAccessToken(existingUser);
+      return res.json({ accessToken });
+    }
+
     clearRefreshCookie(res);
-    await User.updateOne({ _id: decoded.sub }, { $set: { activeSessions: [] } });
+    await User.updateOne({ _id: decoded.sub }, { $set: { activeSessions: [], recentRotations: [] } });
     logger.warn('Refresh token reuse detected — all sessions revoked', { userId: decoded.sub });
     alertError({
       source: 'auth.refresh',
@@ -267,15 +285,17 @@ exports.refresh = asyncHandler(async (req, res) => {
   const newRefreshToken = signRefreshToken(user);
   const { jti: newJti } = verifyRefreshToken(newRefreshToken);
 
-  // SESSION-02: atomically issue new JTI. The pull (above) and this push are
-  // deliberately two writes — a crash between them leaves the session logged out
-  // (safe), and a replay of the old token finds the JTI missing and wipes all.
+  // SESSION-02: atomically issue new JTI and record rotation for multi-tab grace
   await User.updateOne(
     { _id: user._id },
     {
       $push: {
         activeSessions: {
           $each: [{ jti: newJti, createdAt: new Date() }],
+          $slice: -MAX_ACTIVE_SESSIONS,
+        },
+        recentRotations: {
+          $each: [{ oldJti: decoded.jti, newJti, rotatedAt: new Date() }],
           $slice: -MAX_ACTIVE_SESSIONS,
         },
       },

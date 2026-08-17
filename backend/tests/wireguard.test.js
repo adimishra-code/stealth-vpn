@@ -4,6 +4,7 @@ const {
   generateTCHandle,
   isValidPublicKey,
   isValidPrivateKey,
+  isValidIPv4,
 } = require('../src/utils/wireguard');
 
 describe('WireGuard utilities & Curve25519 key generation', () => {
@@ -34,5 +35,16 @@ describe('WireGuard utilities & Curve25519 key generation', () => {
     expect(isValidPrivateKey('invalid-key')).toBe(false);
     const valid = '4mZTj+9zXkLq2wVbNcDfGhJkPqRsTuVwXyZ01234567=';
     expect(isValidPublicKey(valid)).toBe(true);
+  });
+
+  test('validates IPv4 address strings and rejects shell injection attempts', () => {
+    expect(isValidIPv4('10.8.0.2')).toBe(true);
+    expect(isValidIPv4('192.168.1.1')).toBe(true);
+    expect(isValidIPv4('10.8.0.2; rm -rf /')).toBe(false);
+    expect(isValidIPv4('10.8.0.256')).toBe(false);
+    expect(isValidIPv4('10.8.0')).toBe(false);
+    expect(isValidIPv4('10.8.0.2.1')).toBe(false);
+    expect(isValidIPv4(null)).toBe(false);
+    expect(isValidIPv4(12345)).toBe(false);
   });
 });

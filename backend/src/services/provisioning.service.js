@@ -106,71 +106,100 @@ function withUserLock(userId, fn) {
   return settled;
 }
 
+const MAX_ALLOCATION_RETRIES = 3;
+
 async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName, mode }) {
   await enforceDeviceLimit(user._id, plan);
 
   const resolvedNodeName = await resolveServerNode(serverNodeName);
 
-  const { privateKey, publicKey, encryptedPrivateKey, serverNode } = await vpn.createDeviceOnNode({
-    serverNodeName: resolvedNodeName,
-  });
-  const { assignedIP } = await allocateIP(resolvedNodeName);
-  const uuid = randomUUID();
-
-  let peerProvisioned = false;
-  let xrayAdded = false;
-  let tcHandle = null;
   let device;
-  try {
-    const provisioned = await vpn.provisionPeer({ serverNode, publicKey, assignedIP, plan });
-    peerProvisioned = true;
-    tcHandle = provisioned.tcHandle || null;
-    await xray.addXrayUser({ serverNode, uuid, flow: xray.FLOW_VISION });
-    xrayAdded = true;
+  let privateKey;
+  let assignedIP;
+  let serverNode;
+  let uuid;
 
-    device = await Device.create({
-      userId: user._id,
-      deviceName,
-      wgPublicKey: publicKey,
-      wgPrivateKey: encryptedPrivateKey,
-      assignedIP,
-      serverNode: resolvedNodeName,
-      mode,
-      encryptedXrayUUID: encryptPrivateKey(uuid),
-      plan,
-      quotaMB: PLAN_QUOTAS[plan] ?? null,
-      tcHandle,
-      isActive: true,
+  for (let attempt = 1; attempt <= MAX_ALLOCATION_RETRIES; attempt++) {
+    const nodeData = await vpn.createDeviceOnNode({
+      serverNodeName: resolvedNodeName,
     });
-  } catch (err) {
-    // Undo whatever landed on the node. Without this the peer stays live on the
-    // remote host with no Device row, so nothing can ever revoke it.
-    if (xrayAdded) {
-      try {
-        await xray.removeXrayUser({ serverNode, uuid });
-      } catch (cleanupErr) {
-        logger.error('Rollback: failed to remove Xray user', {
-          uuid,
-          error: cleanupErr.message,
-        });
+    privateKey = nodeData.privateKey;
+    const publicKey = nodeData.publicKey;
+    const encryptedPrivateKey = nodeData.encryptedPrivateKey;
+    serverNode = nodeData.serverNode;
+
+    const ipAlloc = await allocateIP(resolvedNodeName);
+    assignedIP = ipAlloc.assignedIP;
+    uuid = randomUUID();
+
+    let peerProvisioned = false;
+    let xrayAdded = false;
+    let tcHandle = null;
+
+    try {
+      const provisioned = await vpn.provisionPeer({ serverNode, publicKey, assignedIP, plan });
+      peerProvisioned = true;
+      tcHandle = provisioned.tcHandle || null;
+      await xray.addXrayUser({ serverNode, uuid, flow: xray.FLOW_VISION });
+      xrayAdded = true;
+
+      device = await Device.create({
+        userId: user._id,
+        deviceName,
+        wgPublicKey: publicKey,
+        wgPrivateKey: encryptedPrivateKey,
+        assignedIP,
+        serverNode: resolvedNodeName,
+        mode,
+        encryptedXrayUUID: encryptPrivateKey(uuid),
+        plan,
+        quotaMB: PLAN_QUOTAS[plan] ?? null,
+        tcHandle,
+        isActive: true,
+      });
+
+      // Creation succeeded — exit retry loop
+      break;
+    } catch (err) {
+      // Undo whatever landed on the node.
+      if (xrayAdded) {
+        try {
+          await xray.removeXrayUser({ serverNode, uuid });
+        } catch (cleanupErr) {
+          logger.error('Rollback: failed to remove Xray user', {
+            uuid,
+            error: cleanupErr.message,
+          });
+        }
       }
-    }
-    if (peerProvisioned) {
-      try {
-        await vpn.revokePeer({ serverNode, publicKey, tcHandle });
-      } catch (cleanupErr) {
-        logger.error('Rollback: failed to remove WireGuard peer', {
-          assignedIP,
-          error: cleanupErr.message,
-        });
+      if (peerProvisioned) {
+        try {
+          await vpn.revokePeer({ serverNode, publicKey, tcHandle });
+        } catch (cleanupErr) {
+          logger.error('Rollback: failed to remove WireGuard peer', {
+            assignedIP,
+            error: cleanupErr.message,
+          });
+        }
       }
+
+      // If collision occurred with a concurrent request, retry allocation on this node
+      const isDuplicateKey = err.code === 11000 || (err.message && err.message.includes('E11000'));
+      if (isDuplicateKey && attempt < MAX_ALLOCATION_RETRIES) {
+        logger.warn('IP collision on concurrent provisioning — retrying allocation', {
+          node: resolvedNodeName,
+          collidedIP: assignedIP,
+          attempt,
+        });
+        continue;
+      }
+
+      logger.error('Provisioning failed — rolled back node state', {
+        error: err.message,
+        assignedIP,
+      });
+      throw err;
     }
-    // the counter would hand the same IP to a concurrent request.
-    logger.error('Provisioning failed — rolled back node state', {
-      error: err.message,
-      assignedIP,
-    });
-    throw err;
   }
 
   const now = new Date();

@@ -3,7 +3,7 @@ const env = require('../config/env');
 const ServerNode = require('../models/ServerNode');
 const logger = require('../config/logger');
 const { ApiError } = require('../utils/ApiError');
-const { generateWGKeypair, generateTCHandle, isValidPublicKey } = require('../utils/wireguard');
+const { generateWGKeypair, generateTCHandle, isValidPublicKey, isValidIPv4 } = require('../utils/wireguard');
 const { encryptPrivateKey, decryptPrivateKey, randomUUID } = require('../utils/crypto');
 
 // ── SSH singleton + resilience ────────────────────────────────────────────────
@@ -147,6 +147,9 @@ PersistentKeepalive = 25`;
 async function provisionPeer({ serverNode, publicKey, assignedIP, plan }) {
   if (!isValidPublicKey(publicKey)) {
     throw new ApiError(400, 'Invalid WireGuard public key');
+  }
+  if (!isValidIPv4(assignedIP)) {
+    throw new ApiError(400, 'Invalid IP address format');
   }
   const ssh = await sshConnect(serverNode);
   const { stderr } = await ssh.execCommand(

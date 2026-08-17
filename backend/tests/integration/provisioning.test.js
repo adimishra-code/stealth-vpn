@@ -126,4 +126,69 @@ describe('Provisioning API (integration)', () => {
     expect(xray.removeXrayUser).toHaveBeenCalledWith({ serverNode: expect.anything(), uuid: uuidCapture.value });
     expect(mockTestUser.save).not.toHaveBeenCalled();
   });
+
+  test('concurrent provisionDevice collision automatically retries and succeeds on next free IP', async () => {
+    const e11000Error = new Error('E11000 duplicate key error collection: devices index: serverNode_1_assignedIP_1 dup key: { serverNode: "mumbai", assignedIP: "10.8.0.5" }');
+    e11000Error.code = 11000;
+
+    let createCallCount = 0;
+    Device.create.mockImplementation(async (props) => {
+      createCallCount++;
+      // First call (Request 1) succeeds, second call (Request 2 Attempt 1) hits E11000, third call (Request 2 Attempt 2) succeeds
+      if (createCallCount === 2) {
+        throw e11000Error;
+      }
+      return { _id: `dev-${createCallCount}`, ...props };
+    });
+
+    const firstCollidedUuid = { value: null };
+    let xrayAddCount = 0;
+    xray.addXrayUser.mockImplementation(async ({ uuid }) => {
+      xrayAddCount++;
+      if (xrayAddCount === 2) {
+        firstCollidedUuid.value = uuid;
+      }
+    });
+
+    // Request 1 succeeds
+    const res1 = await request(app)
+      .post('/api/devices')
+      .set(authHeader)
+      .send({ deviceName: 'user-a-device', serverNode: 'mumbai', mode: 'stealth' });
+
+    expect(res1.status).toBe(201);
+    expect(res1.body.device.deviceName).toBe('user-a-device');
+
+    // Request 2 hits collision on attempt 1, rolls back attempt 1 on node, retries, and succeeds on attempt 2
+    const res2 = await request(app)
+      .post('/api/devices')
+      .set(authHeader)
+      .send({ deviceName: 'user-b-device', serverNode: 'mumbai', mode: 'stealth' });
+
+    expect(res2.status).toBe(201);
+    expect(res2.body.device.deviceName).toBe('user-b-device');
+    // Confirm compensating rollback cleaned up the collided attempt 1 on the node
+    expect(vpn.revokePeer).toHaveBeenCalledTimes(1);
+    expect(xray.removeXrayUser).toHaveBeenCalledTimes(1);
+    expect(xray.removeXrayUser).toHaveBeenCalledWith(
+      expect.objectContaining({ uuid: firstCollidedUuid.value })
+    );
+  });
+
+  test('repeated collisions exceeding max retries roll back all attempts and return 500', async () => {
+    const e11000Error = new Error('E11000 duplicate key error');
+    e11000Error.code = 11000;
+    Device.create.mockRejectedValue(e11000Error);
+
+    const res = await request(app)
+      .post('/api/devices')
+      .set(authHeader)
+      .send({ deviceName: 'exhaust-retries', serverNode: 'mumbai', mode: 'stealth' });
+
+    expect(res.status).toBe(500);
+    // Rolled back all 3 attempts
+    expect(vpn.revokePeer).toHaveBeenCalledTimes(3);
+    expect(xray.removeXrayUser).toHaveBeenCalledTimes(3);
+  });
 });
+

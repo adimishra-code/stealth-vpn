@@ -1,4 +1,4 @@
-require('dotenv').config();
+const fs = require('fs');
 const mongoose = require('mongoose');
 const env = require('./src/config/env');
 const connectDB = require('./src/config/db');
@@ -16,10 +16,27 @@ const { startPurgeCron } = require('./src/cron/purgeExpiredData.cron');
 const { startRevocationRetryCron } = require('./src/cron/revocationRetry.cron');
 const { startKeyRotationCron } = require('./src/cron/keyRotation.cron');
 
+function verifySshKeySecurity() {
+  if (!env.SSH_PRIVATE_KEY_PATH) return;
+  try {
+    const stat = fs.statSync(env.SSH_PRIVATE_KEY_PATH);
+    if (process.platform !== 'win32') {
+      const mode = stat.mode & 0o777;
+      if ((mode & 0o077) !== 0) {
+        logger.warn(`SSH private key "${env.SSH_PRIVATE_KEY_PATH}" has insecure permissions (${mode.toString(8)}). Expected 0600.`);
+      }
+    }
+    logger.info('SSH private key security verified', { path: env.SSH_PRIVATE_KEY_PATH });
+  } catch (err) {
+    logger.warn('SSH private key file not accessible at boot', { path: env.SSH_PRIVATE_KEY_PATH, error: err.message });
+  }
+}
+
 const app = createApp();
 
 async function start() {
   await connectDB();
+  verifySshKeySecurity();
 
   // SMTP is configured, so surface a clear warning at boot if it's broken —
   // but never crash: the API can serve traffic while mail is down, and the
@@ -94,17 +111,21 @@ async function start() {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-start().catch((err) => {
-  logger.error('Failed to start server', { error: err.message, stack: err.stack });
-  alertError({
-    source: 'process',
-    title: 'Server failed to start',
-    message: err.message,
-    details: { stack: err.stack },
-    err,
-  })
-    .catch(() => {})
-    .finally(() => process.exit(1));
-});
+if (require.main === module) {
+  start().catch((err) => {
+    logger.error('Failed to start server', { error: err.message, stack: err.stack });
+    alertError({
+      source: 'process',
+      title: 'Server failed to start',
+      message: err.message,
+      details: { stack: err.stack },
+      err,
+    })
+      .catch(() => {})
+      .finally(() => process.exit(1));
+  });
 
-registerProcessHandlers();
+  registerProcessHandlers();
+}
+
+module.exports = { start, verifySshKeySecurity };

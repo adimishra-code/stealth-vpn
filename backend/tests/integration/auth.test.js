@@ -17,6 +17,7 @@ jest.mock('../../src/models/User', () => {
       this.isActive = true;
       this.refreshTokens = [];
       this.activeSessions = [];
+      this.recentRotations = [];
       mockUsers.push(this);
     }
 
@@ -27,6 +28,7 @@ jest.mock('../../src/models/User', () => {
     }
 
     static async findOne(query) {
+      if (query._id) return findUser((u) => u._id === query._id);
       if (query.email) return findUser((u) => u.email === query.email);
       if (query.emailVerifyToken) return findUser((u) => u.emailVerifyToken === query.emailVerifyToken);
       if (query.passwordResetToken) return findUser((u) => u.passwordResetToken === query.passwordResetToken);
@@ -67,10 +69,18 @@ jest.mock('../../src/models/User', () => {
         user.refreshTokens = (user.refreshTokens || []).filter((t) => t !== update.$pull.refreshTokens);
       }
       if (update.$push && update.$push.activeSessions) {
-        user.activeSessions = (user.activeSessions || []);
-        const newSessions = update.$push.activeSessions.$each;
-        const slice = update.$push.activeSessions.$slice || Infinity;
-        user.activeSessions = [...user.activeSessions, ...newSessions].slice(-slice);
+        user.activeSessions = user.activeSessions || [];
+        const newSessions = update.$push.activeSessions.$each || [update.$push.activeSessions];
+        const slice = update.$push.activeSessions.$slice;
+        const merged = [...user.activeSessions, ...newSessions];
+        user.activeSessions = slice ? merged.slice(slice) : merged;
+      }
+      if (update.$push && update.$push.recentRotations) {
+        user.recentRotations = user.recentRotations || [];
+        const newRotations = update.$push.recentRotations.$each || [update.$push.recentRotations];
+        const slice = update.$push.recentRotations.$slice;
+        const merged = [...user.recentRotations, ...newRotations];
+        user.recentRotations = slice ? merged.slice(slice) : merged;
       }
       if (update.$push && update.$push.refreshTokens) {
         user.refreshTokens = [
@@ -83,6 +93,9 @@ jest.mock('../../src/models/User', () => {
       }
       if (update.$set && Array.isArray(update.$set.activeSessions)) {
         user.activeSessions = update.$set.activeSessions;
+      }
+      if (update.$set && Array.isArray(update.$set.recentRotations)) {
+        user.recentRotations = update.$set.recentRotations;
       }
       if (update.$set && Object.prototype.hasOwnProperty.call(update.$set, 'totpEnabled')) {
         user.totpEnabled = update.$set.totpEnabled;
@@ -182,24 +195,88 @@ describe('Auth API (integration)', () => {
     expect(res.headers['set-cookie'][0]).toContain('sv_refresh=');
   });
 
-  test('refresh rotates the token; replaying the old one wipes all sessions', async () => {
-    const loginRes = await request(app)
-      .post('/api/auth/login')
-      .send({ email: 'verified@example.com', password: 'right-password' });
+  test('multi-tab concurrent refresh within grace window succeeds without session invalidation', async () => {
+    const { signRefreshToken, verifyRefreshToken } = require('../../src/utils/jwt');
+    const user = mockUsers.find((u) => u.email === 'verified@example.com');
+    const refreshToken = signRefreshToken(user);
+    const { jti } = verifyRefreshToken(refreshToken);
+    user.activeSessions = [{ jti, createdAt: new Date() }];
+    const refreshCookie = `sv_refresh=${refreshToken}`;
 
-    const oldRefreshCookie = refreshCookieOf(loginRes);
+    // Tab 1 refreshes
+    const tab1 = await request(app).post('/api/auth/refresh').set('Cookie', refreshCookie);
+    expect(tab1.status).toBe(200);
+    expect(tab1.body.accessToken).toBeTruthy();
+
+    // Tab 2 fires near-simultaneously with the same pre-rotation cookie within 10s grace window
+    const tab2 = await request(app).post('/api/auth/refresh').set('Cookie', refreshCookie);
+    expect(tab2.status).toBe(200);
+    expect(tab2.body.accessToken).toBeTruthy();
+  });
+
+  test('adversary presenting stolen rotated refresh token within grace window gets access token without new refresh cookie; event is logged', async () => {
+    const { signRefreshToken, verifyRefreshToken } = require('../../src/utils/jwt');
+    const logger = require('../../src/config/logger');
+    const loggerInfoSpy = jest.spyOn(logger, 'info');
+
+    const user = mockUsers.find((u) => u.email === 'verified@example.com');
+    const originalRefreshToken = signRefreshToken(user);
+    const { jti } = verifyRefreshToken(originalRefreshToken);
+    user.activeSessions = [{ jti, createdAt: new Date() }];
+    const originalRefreshCookie = `sv_refresh=${originalRefreshToken}`;
+
+    // 1. Legitimate client rotates token
+    const legitRotateRes = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', originalRefreshCookie);
+    expect(legitRotateRes.status).toBe(200);
+    expect(legitRotateRes.headers['set-cookie']).toBeDefined();
+
+    // 2. Attacker presents the stolen original refresh token within the 10s grace window
+    const attackerRes = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', originalRefreshCookie);
+
+    // Assert: Attacker receives a short-lived access token
+    expect(attackerRes.status).toBe(200);
+    expect(attackerRes.body.accessToken).toBeTruthy();
+    // Assert: Attacker is NOT issued a new refresh token cookie (cannot gain perpetual persistence)
+    expect(attackerRes.headers['set-cookie']).toBeUndefined();
+
+    // Assert: Structured log was emitted recording the grace-window reuse
+    expect(loggerInfoSpy).toHaveBeenCalledWith(
+      'Refresh token rotation grace window hit — issuing access token without rotation',
+      expect.objectContaining({
+        oldJti: jti,
+      })
+    );
+
+    loggerInfoSpy.mockRestore();
+  });
+
+  test('replaying a token outside the grace window wipes all sessions', async () => {
+    const { signRefreshToken, verifyRefreshToken } = require('../../src/utils/jwt');
+    const user = mockUsers.find((u) => u.email === 'verified@example.com');
+    const oldRefreshToken = signRefreshToken(user);
+    const { jti } = verifyRefreshToken(oldRefreshToken);
+    user.activeSessions = [{ jti, createdAt: new Date() }];
+    const oldRefreshCookie = `sv_refresh=${oldRefreshToken}`;
 
     const rotated = await request(app).post('/api/auth/refresh').set('Cookie', oldRefreshCookie);
     expect(rotated.status).toBe(200);
-    expect(rotated.body.accessToken).toBeTruthy();
     const newRefreshCookie = refreshCookieOf(rotated);
 
-    // Replaying the already-consumed token is a theft signal: 401 + all sessions dropped.
+    // Fast-forward rotation timestamp past the 10s grace window
+    user.recentRotations.forEach((r) => {
+      r.rotatedAt = new Date(Date.now() - 30_000);
+    });
+
+    // Replaying the token outside grace window triggers full invalidation
     const replay = await request(app).post('/api/auth/refresh').set('Cookie', oldRefreshCookie);
     expect(replay.status).toBe(401);
     expect(replay.body.error).toBe('Refresh token revoked');
 
-    // The freshly rotated token is also dead now — everything was revoked.
+    // Both old and new cookies are dead now
     const afterWipeout = await request(app).post('/api/auth/refresh').set('Cookie', newRefreshCookie);
     expect(afterWipeout.status).toBe(401);
   });

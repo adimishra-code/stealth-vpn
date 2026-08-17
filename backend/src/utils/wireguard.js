@@ -59,10 +59,22 @@ function isValidPrivateKey(key) {
   return /^[A-Za-z0-9+/]{42}[AIEOaieoAEIO=]=$/.test(key) || /^[A-Za-z0-9+/]{43}=$/.test(key);
 }
 
+function isValidIPv4(ip) {
+  if (typeof ip !== 'string') return false;
+  const parts = ip.split('.');
+  if (parts.length !== 4) return false;
+  return parts.every((p) => {
+    if (!/^\d{1,3}$/.test(p)) return false;
+    const n = Number(p);
+    return n >= 0 && n <= 255 && String(n) === p;
+  });
+}
+
 module.exports = {
   generateWGKeypair,
   generatePresharedKey,
   generateTCHandle,
   isValidPublicKey,
   isValidPrivateKey,
+  isValidIPv4,
 };

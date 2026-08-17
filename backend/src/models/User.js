@@ -59,6 +59,13 @@ const UserSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
   }],
 
+  // Multi-tab refresh race grace window: stores recently rotated JTIs with timestamp
+  recentRotations: [{
+    oldJti: String,
+    newJti: String,
+    rotatedAt: { type: Date, default: Date.now },
+  }],
+
   // ADMIN-01: TOTP 2FA for admin accounts. The secret is stored AES-256-GCM
   // encrypted (WG_ENCRYPTION_KEY envelope); totpEnabled is the operative
   // flag — setup re-generates the secret, disabling clears it.

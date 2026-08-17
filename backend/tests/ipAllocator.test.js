@@ -143,4 +143,41 @@ describe('allocateIP (reusable & atomic IP assignment)', () => {
     const uniqueIPs = new Set(results);
     expect(uniqueIPs.size).toBe(20);
   });
+
+  test('concurrent allocateIP calls before DB commit return duplicate IP and trigger E11000 on second insert', async () => {
+    // 1. Two separate users concurrently allocate IP from mumbai at the exact same moment
+    const [allocUserA, allocUserB] = await Promise.all([
+      allocateIP('mumbai'),
+      allocateIP('mumbai'),
+    ]);
+
+    // Both observe the same free lowest octet because neither has committed yet
+    expect(allocUserA.assignedIP).toBe('10.8.0.2');
+    expect(allocUserB.assignedIP).toBe('10.8.0.2');
+
+    // 2. User A commits device to DB first
+    await Device.create({
+      userId: new mongoose.Types.ObjectId(),
+      deviceName: 'Device User A',
+      wgPublicKey: 'key-user-a-abcdefghijklmnopqrstuvwxyz0123456=',
+      wgPrivateKey: 'priv-a',
+      assignedIP: allocUserA.assignedIP,
+      serverNode: 'mumbai',
+      isActive: true,
+    });
+
+    // 3. User B attempts to commit same assignedIP — Mongo unique index rejects with E11000
+    await expect(
+      Device.create({
+        userId: new mongoose.Types.ObjectId(),
+        deviceName: 'Device User B',
+        wgPublicKey: 'key-user-b-abcdefghijklmnopqrstuvwxyz0123456=',
+        wgPrivateKey: 'priv-b',
+        assignedIP: allocUserB.assignedIP,
+        serverNode: 'mumbai',
+        isActive: true,
+      })
+    ).rejects.toThrow(/E11000/);
+  });
 });
+

@@ -4,6 +4,7 @@ const logger = require('../config/logger');
 const { isValidUUID } = require('../utils/crypto');
 
 const FLOW_VISION = 'xtls-rprx-vision';
+const ALLOWED_FLOWS = new Set([FLOW_VISION, 'none', '']);
 
 // The xray api CLI takes a bare host:port, the env var a full URL.
 function apiServer() {
@@ -36,6 +37,9 @@ function buildVlessUri({ serverNode, uuid, deviceName, nodeKeys, sni = env.XRAY_
 async function addXrayUser({ serverNode, uuid, flow = FLOW_VISION }) {
   if (!isValidUUID(uuid)) {
     throw new Error(`Invalid UUID format: ${uuid}`);
+  }
+  if (flow && !ALLOWED_FLOWS.has(flow)) {
+    throw new Error(`Invalid Xray flow parameter: ${flow}`);
   }
   const ssh = await sshConnect(serverNode);
   const cmd = `sudo -n xray api adduser \
