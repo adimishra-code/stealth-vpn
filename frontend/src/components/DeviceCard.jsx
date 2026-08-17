@@ -228,7 +228,7 @@ DeviceCard.propTypes = {
     id: PropTypes.string.isRequired,
     _id: PropTypes.string,
     deviceName: PropTypes.string.isRequired,
-    platform: PropTypes.string.isRequired,
+    platform: PropTypes.string,
     serverNode: PropTypes.string,
     isActive: PropTypes.bool.isRequired,
     status: PropTypes.string,

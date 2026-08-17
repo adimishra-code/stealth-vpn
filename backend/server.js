@@ -13,6 +13,8 @@ const { startHealthCheckCron, startWeeklyTlsCheckCron } = require('./src/cron/he
 const { startBandwidthSnapshotCron } = require('./src/cron/bandwidthSnapshot.cron');
 const { startPendingInvoiceCron } = require('./src/cron/pendingInvoice.cron');
 const { startPurgeCron } = require('./src/cron/purgeExpiredData.cron');
+const { startRevocationRetryCron } = require('./src/cron/revocationRetry.cron');
+const { startKeyRotationCron } = require('./src/cron/keyRotation.cron');
 
 const app = createApp();
 
@@ -42,6 +44,8 @@ async function start() {
     startBandwidthSnapshotCron();
     startPendingInvoiceCron();
     startPurgeCron();
+    startRevocationRetryCron();
+    startKeyRotationCron();
     logger.info('Cron jobs started');
   } else {
     logger.warn('CRON_ENABLED=false — scheduled jobs are NOT running on this worker');

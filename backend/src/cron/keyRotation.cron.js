@@ -31,7 +31,6 @@ async function runKeyRotation() {
   try {
     let lastId = null;
 
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const filter = lastId ? { _id: { $gt: lastId } } : {};
       const devices = await Device.find(filter)

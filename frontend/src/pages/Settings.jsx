@@ -2,7 +2,13 @@ import { useState } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import { useNavigate } from 'react-router'
 import { selectUser, clearCredentials } from '../features/auth/authSlice'
-import { useLogoutAllMutation, useTotpSetupMutation, useTotpVerifyMutation, useTotpDisableMutation } from '../features/auth/authApi'
+import {
+  useLogoutAllMutation,
+  useTotpSetupMutation,
+  useTotpVerifyMutation,
+  useTotpDisableMutation,
+  useDeleteAccountMutation,
+} from '../features/auth/authApi'
 import { Mail, UserCog, KeyRound, ShieldCheck, MonitorX, AlertTriangle, Loader2 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { toast } from '../lib/toast'
@@ -13,7 +19,9 @@ export default function Settings() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
   const [logoutAll, { isLoading }] = useLogoutAllMutation()
+  const [deleteAccount, { isLoading: deleting }] = useDeleteAccountMutation()
   const [confirming, setConfirming] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [result, setResult] = useState(null)
 
   const isAdmin = user?.role === 'admin'
@@ -85,6 +93,18 @@ export default function Settings() {
     setConfirming(false)
   }
 
+  const handleDeleteAccount = async () => {
+    try {
+      const res = await deleteAccount().unwrap()
+      toast.success(res?.message || 'Account deletion scheduled')
+      dispatch(clearCredentials())
+      navigate('/login')
+    } catch (err) {
+      toast.error(err?.data?.error || 'Failed to schedule account deletion')
+    }
+    setConfirmDelete(false)
+  }
+
   return (
     <div className="max-w-xl space-y-8">
       <div className="animate-fade-up">
@@ -117,14 +137,13 @@ export default function Settings() {
           Change password
         </h2>
         <button
-          disabled
-          className="btn-primary text-sm opacity-50 cursor-not-allowed"
-          title="Coming soon"
+          onClick={() => navigate('/forgot-password')}
+          className="btn-secondary text-sm"
         >
-          Change password (coming soon)
+          Request password reset link
         </button>
         <p className="text-xs text-faint mt-3">
-          Password reset is available from the login screen via &quot;Forgot password&quot;.
+          Sends a secure password reset link to your registered email address.
         </p>
       </div>
 
@@ -234,12 +253,16 @@ export default function Settings() {
           Danger zone
         </h2>
         <p className="text-sm text-muted mb-4">
-          Schedules your account for deletion after a 7-day grace period. During that window
-          you can contact support to cancel; afterwards your account and data are removed
+          Schedules your account for deletion after a 14-day grace period. During that window
+          you can contact support to cancel; afterwards your account, active devices, and invoices are removed
           permanently.
         </p>
-        <button disabled className="btn-danger text-sm opacity-50" title="Coming soon">
-          Delete account
+        <button
+          onClick={() => setConfirmDelete(true)}
+          disabled={deleting}
+          className="btn-danger text-sm"
+        >
+          {deleting ? 'Scheduling deletion…' : 'Delete account'}
         </button>
       </div>
 
@@ -251,7 +274,19 @@ export default function Settings() {
           danger
           loading={isLoading}
           onConfirm={handleLogoutAll}
-          onClose={() => setConfirming(null)}
+          onClose={() => setConfirming(false)}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Schedule account deletion?"
+          message="All your active VPN devices will be revoked immediately and your account will be permanently purged after the 14-day grace period. Are you sure?"
+          confirmLabel="Yes, delete my account"
+          danger
+          loading={deleting}
+          onConfirm={handleDeleteAccount}
+          onClose={() => setConfirmDelete(false)}
         />
       )}
     </div>

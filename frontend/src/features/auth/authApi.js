@@ -40,6 +40,10 @@ export const authApi = api.injectEndpoints({
     resendVerify: build.mutation({
       query: (body) => ({ url: '/auth/resend-verify', method: 'POST', body }),
     }),
+    deleteAccount: build.mutation({
+      query: () => ({ url: '/auth/me', method: 'DELETE' }),
+      invalidatesTags: ['Users', 'Devices'],
+    }),
     me: build.query({
       query: () => '/auth/me',
       providesTags: ['Users'],
@@ -61,4 +65,5 @@ export const {
   useTotpSetupMutation,
   useTotpVerifyMutation,
   useTotpDisableMutation,
+  useDeleteAccountMutation,
 } = authApi

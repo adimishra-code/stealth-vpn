@@ -57,11 +57,12 @@ function createApp() {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
+          scriptSrc: ["'self'", 'https://checkout.razorpay.com', 'https://js.stripe.com'],
           styleSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", 'data:'],
-          connectSrc: ["'self'"],
-          fontSrc: ["'self'"],
+          imgSrc: ["'self'", 'data:', 'https://*.razorpay.com', 'https://*.stripe.com'],
+          connectSrc: ["'self'", 'https://api.stripe.com', 'https://checkout.stripe.com'],
+          frameSrc: ["'self'", 'https://checkout.razorpay.com', 'https://js.stripe.com', 'https://checkout.stripe.com'],
+          fontSrc: ["'self'", 'data:'],
           objectSrc: ["'none'"],
           frameAncestors: ["'none'"],
           formAction: ["'self'"],

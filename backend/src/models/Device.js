@@ -25,8 +25,8 @@ const DeviceSchema = new mongoose.Schema({
   },
   serverNode: {
     type: String,
-    enum: ['mumbai', 'frankfurt'],
     required: true,
+    trim: true,
   },
   mode: {
     type: String,

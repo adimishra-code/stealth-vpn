@@ -340,4 +340,5 @@ module.exports = {
   PLAN_LIMITS,
   PLAN_QUOTAS,
   enforceDeviceLimit,
+  enforceDeviceLimitAtomic,
 };

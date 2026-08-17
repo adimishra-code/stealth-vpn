@@ -170,9 +170,11 @@ for (const node of nodes) {
             Promise.race([xrayCmd, new Promise((_, reject) => setTimeout(() => reject(new Error('SSH command timed out')), cmdTimeout))]),
             Promise.race([wgCmd, new Promise((_, reject) => setTimeout(() => reject(new Error('SSH command timed out')), cmdTimeout))]),
           ]);
-          const xrayStatus = xrayResult?.stdout?.trim();
-          const wgStatusText = wgResult?.stdout?.trim;
-          const isOnline = xrayStatus !== '' || wgStatusText !== '';
+          const xrayStatus = xrayResult?.stdout ? xrayResult.stdout.trim() : '';
+          const wgStatusText = wgResult?.stdout ? wgResult.stdout.trim() : '';
+          const isOnline = xrayStatus === 'active' || (wgStatusText !== '' && !wgResult?.stderr);
+
+          await recordStatus(node, isOnline, now);
 
           if (!isOnline) {
             if (node.isOnline) {

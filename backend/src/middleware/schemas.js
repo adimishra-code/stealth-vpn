@@ -45,12 +45,17 @@ const resetPasswordSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
 });
 
-const SERVER_NODE_CHOICES = ['auto', 'mumbai', 'frankfurt'];
+const serverNodeSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-zA-Z0-9_-]+$/, 'Invalid server node format')
+  .default('auto');
 
 // ── Device schemas ────────────────────────────────────────────────────────────
 const addDeviceSchema = z.object({
   deviceName: z.string().min(1).max(64),
-  serverNode: z.enum(SERVER_NODE_CHOICES).default('auto'),
+  serverNode: serverNodeSchema,
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
 });
 
@@ -61,7 +66,7 @@ const updateDeviceModeSchema = z.object({
 // ── Payment schemas ───────────────────────────────────────────────────────────
 const createOrderSchema = z.object({
   plan: z.enum(['basic', 'pro', 'team']),
-  serverNode: z.enum(SERVER_NODE_CHOICES).default('auto'),
+  serverNode: serverNodeSchema,
   deviceName: z.string().min(1).max(64),
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
 });
@@ -71,14 +76,14 @@ const verifyPaymentSchema = z.object({
   orderId: z.string().min(1),
   signature: z.string().min(1),
   plan: z.enum(['basic', 'pro', 'team']),
-  serverNode: z.enum(SERVER_NODE_CHOICES).default('auto'),
+  serverNode: serverNodeSchema,
   deviceName: z.string().min(1).max(64),
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
 });
 
 const stripeSessionSchema = z.object({
   plan: z.enum(['basic', 'pro', 'team']),
-  serverNode: z.enum(SERVER_NODE_CHOICES).default('auto'),
+  serverNode: serverNodeSchema,
   deviceName: z.string().min(1).max(64),
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
   successUrl: appOriginUrl(),

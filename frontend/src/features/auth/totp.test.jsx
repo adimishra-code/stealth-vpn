@@ -6,11 +6,12 @@ import userEvent from '@testing-library/user-event'
 import Settings from '../../pages/Settings'
 import { renderWithProviders } from '../../test/test-utils'
 
-const { setup, verify, disable, logoutAll } = vi.hoisted(() => ({
+const { setup, verify, disable, logoutAll, deleteAccount } = vi.hoisted(() => ({
   setup: vi.fn(),
   verify: vi.fn(),
   disable: vi.fn(),
   logoutAll: vi.fn(),
+  deleteAccount: vi.fn(),
 }))
 
 vi.mock('../../features/auth/authApi', () => ({
@@ -18,6 +19,7 @@ vi.mock('../../features/auth/authApi', () => ({
   useTotpVerifyMutation: () => [verify, { isLoading: false }],
   useTotpDisableMutation: () => [disable, { isLoading: false }],
   useLogoutAllMutation: () => [logoutAll, { isLoading: false }],
+  useDeleteAccountMutation: () => [deleteAccount, { isLoading: false }],
 }))
 
 function adminState(user = { role: 'admin', email: 'admin@example.com' }) {
