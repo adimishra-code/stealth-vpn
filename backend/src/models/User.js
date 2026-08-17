@@ -59,6 +59,12 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // TOTP brute-force protection: track failed attempts and lock on threshold
+  totpFailedAttempts: {
+    type: Number,
+    default: 0,
+  },
+  totpLockedUntil: Date,
 
   // When the user requested account deletion; the purge cron hard-deletes
   // the account once this passes, the grace period lets support cancel.
@@ -92,6 +98,8 @@ UserSchema.index({ emailVerifyToken: 1 }, { sparse: true });
 UserSchema.index({ passwordResetToken: 1 }, { sparse: true });
 // Purge cron: accounts past their scheduled deletion.
 UserSchema.index({ deletionScheduledAt: 1 }, { sparse: true });
+// TOTP lockout check
+UserSchema.index({ totpLockedUntil: 1 }, { sparse: true });
 
 UserSchema.pre('save', async function (next) {
   if (!this.isModified('passwordHash')) return next();

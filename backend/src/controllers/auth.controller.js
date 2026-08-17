@@ -11,6 +11,8 @@ const logger = require('../config/logger');
 const VERIFY_TOKEN_TTL_HOURS = 24;
 const RESET_TOKEN_TTL_HOURS = 1;
 const MAX_ACTIVE_SESSIONS = 5;
+const TOTP_MAX_ATTEMPTS = 5;
+const TOTP_LOCKOUT_MINUTES = 15;
 
 // TOTP is admin-only (ADMIN-01); one step of clock drift is tolerated.
 authenticator.options = { window: 1, step: 30, digits: 6 };
@@ -26,6 +28,40 @@ function verifyTotpCode(user, code, allowUnenabled = false) {
   } catch (err) {
     logger.error('TOTP secret decrypt failed', { userId: user._id.toString(), error: err.message });
     return false;
+  }
+}
+
+async function checkTotpLockout(user) {
+  if (user.totpLockedUntil && new Date() < user.totpLockedUntil) {
+    const minutesRemaining = Math.ceil((user.totpLockedUntil - new Date()) / 60000);
+    throw new ApiError(429, `Too many failed attempts. Try again in ${minutesRemaining} minute(s)`);
+  }
+  // Clear lockout if expired
+  if (user.totpLockedUntil && new Date() >= user.totpLockedUntil) {
+    await User.updateOne({ _id: user._id }, { $set: { totpFailedAttempts: 0, totpLockedUntil: null } });
+    user.totpFailedAttempts = 0;
+    user.totpLockedUntil = null;
+  }
+}
+
+async function recordTotpFailure(user) {
+  const newAttempts = (user.totpFailedAttempts || 0) + 1;
+  const update = { $set: { totpFailedAttempts: newAttempts } };
+
+  if (newAttempts >= TOTP_MAX_ATTEMPTS) {
+    update.$set.totpLockedUntil = new Date(Date.now() + TOTP_LOCKOUT_MINUTES * 60 * 1000);
+    logger.warn('TOTP account locked due to brute-force attempts', {
+      userId: user._id.toString(),
+      attempts: newAttempts,
+    });
+  }
+
+  await User.updateOne({ _id: user._id }, update);
+}
+
+async function recordTotpSuccess(user) {
+  if (user.totpFailedAttempts > 0 || user.totpLockedUntil) {
+    await User.updateOne({ _id: user._id }, { $set: { totpFailedAttempts: 0, totpLockedUntil: null } });
   }
 }
 
@@ -123,10 +159,13 @@ exports.login = asyncHandler(async (req, res) => {
   // ADMIN-01: TOTP challenge for admin accounts — the second factor sits
   // between "password correct" and "session issued".
   if (user.role === 'admin' && user.totpEnabled) {
+    await checkTotpLockout(user);
     const { totpCode } = req.body;
     if (!totpCode || !verifyTotpCode(user, totpCode)) {
+      await recordTotpFailure(user);
       throw new ApiError(401, totpCode ? 'Invalid two-factor code' : 'Two-factor code required');
     }
+    await recordTotpSuccess(user);
   }
 
   if (!user.emailVerified || !user.isActive) {
