@@ -232,31 +232,36 @@ exports.webhook = asyncHandler(async (req, res) => {
       // immediate access (the invoice already has the plan + userId).
       if (outcome === 'ok') {
         const session = event.data.object;
-        const meta = session.metadata || {};
-        if (meta.userId && meta.plan && meta.serverNode && meta.deviceName && meta.mode) {
-          try {
+        try {
+          // WEBHOOK-01: Verify metadata via invoice record, not trusting Stripe session
+          // metadata which could be spoofed during checkout creation.
+          const invoice = await Invoice.findOne({
+            gatewayOrderId: session.id,
+            gateway: 'stripe',
+            status: 'paid',
+          });
+          const meta = session.metadata || {};
+          if (invoice && invoice.userId && meta.plan && meta.serverNode && meta.deviceName && meta.mode) {
             const User = require('../models/User');
-const user = await User.findById(meta.userId);
+            const user = await User.findById(invoice.userId);
             if (user) {
-              const provisioningService = require('../services/provisioning.service');
               await provisioningService.provisionDevice({
                 user,
-                plan: meta.plan,
+                plan: invoice.plan,
                 serverNodeName: meta.serverNode,
                 deviceName: meta.deviceName,
                 mode: meta.mode,
               });
               logger.info('Stripe webhook: device provisioned after renewal', {
                 userId: user._id.toString(),
-                plan: meta.plan,
+                plan: invoice.plan,
               });
             }
-          } catch (err) {
-            logger.error('Stripe webhook: device provisioning failed', {
-              error: err.message,
-              userId: meta.userId,
-            });
           }
+        } catch (err) {
+          logger.error('Stripe webhook: device provisioning failed', {
+            error: err.message,
+          });
         }
       }
     }
