@@ -57,7 +57,7 @@ function decryptPrivateKey(stored, purpose = CRYPTO_PURPOSES.wg) {
       // Wrong key → tag verification fails. Try the next candidate key;
       // rethrow with context only after every candidate was exhausted.
       if (attempt === attempts[attempts.length - 1]) {
-        throw new Error(`Failed to decrypt WireGuard key (${err.message})`);
+        throw new Error(`Failed to decrypt WireGuard key (${err.message})`, { cause: err });
       }
     }
   }

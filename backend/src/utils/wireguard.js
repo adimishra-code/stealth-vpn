@@ -33,7 +33,7 @@ function generateWGKeypair() {
       return generateWGKeypairNative();
     } catch (fallbackErr) {
       logger.error('WireGuard keygen failed', { error: fallbackErr.message });
-      throw new Error('WireGuard keygen not available on this host');
+      throw new Error('WireGuard keygen not available on this host', { cause: fallbackErr });
     }
   }
 }

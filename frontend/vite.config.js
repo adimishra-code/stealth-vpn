@@ -24,9 +24,19 @@ export default defineConfig({
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-redux', 'react-router'],
-          charts: ['recharts'],
+        manualChunks(id) {
+          if (id.includes('node_modules/recharts')) {
+            return 'charts'
+          }
+          if (
+            id.includes('node_modules/react') ||
+            id.includes('node_modules/react-dom') ||
+            id.includes('node_modules/react-router') ||
+            id.includes('node_modules/@reduxjs/toolkit') ||
+            id.includes('node_modules/react-redux')
+          ) {
+            return 'vendor'
+          }
         },
       },
     },

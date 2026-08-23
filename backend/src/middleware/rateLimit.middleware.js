@@ -1,4 +1,4 @@
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { redis } = require('../config/redis');
 
 // Minimal express-rate-limit v7 Store backed by ioredis.
@@ -47,14 +47,14 @@ const registerLimiter = rateLimit({
 });
 
 // Keyed per IP+email: neither IP hopping nor hammering one IP can exhaust
-// the other's budget. The IP prefix is mandatory in express-rate-limit v7.
+// the other's budget. ipKeyGenerator normalizes IPv6 addresses properly.
 const forgotPasswordLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
   store: makeRedisStore('forgotpw'),
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `${req.ip}:${String((req.body && req.body.email) || '').toLowerCase()}`,
+  keyGenerator: (req) => `${ipKeyGenerator(req)}:${String((req.body && req.body.email) || '').toLowerCase()}`,
   message: { error: 'Too many reset requests. Try again in 1 hour.' },
 });
 
@@ -64,7 +64,7 @@ const paymentLimiter = rateLimit({
   store: makeRedisStore('payment'),
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user ? req.user._id.toString() : req.ip),
+  keyGenerator: (req) => (req.user ? req.user._id.toString() : ipKeyGenerator(req)),
   message: { error: 'Too many payment attempts. Try again later.' },
 });
 
@@ -74,7 +74,7 @@ const paymentVerifyLimiter = rateLimit({
   store: makeRedisStore('paymentverify'),
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user ? req.user._id.toString() : req.ip),
+  keyGenerator: (req) => (req.user ? req.user._id.toString() : ipKeyGenerator(req)),
   message: { error: 'Too many payment verifications. Try again later.' },
 });
 
@@ -84,7 +84,7 @@ const deviceLimiter = rateLimit({
   store: makeRedisStore('device'),
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user ? req.user._id.toString() : req.ip),
+  keyGenerator: (req) => (req.user ? req.user._id.toString() : ipKeyGenerator(req)),
   message: { error: 'Too many device operations. Try again later.' },
 });
 

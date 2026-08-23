@@ -1,0 +1,36 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      dev-tools:
+        patterns: ["eslint*", "@eslint*", "jest*", "nodemon*", "supertest*", "mongodb-memory-server*"]
+    ignore:
+      # otplib 12+ is ESM-only; CJS backend requires v11
+      - dependency-name: otplib
+        versions: [">=12.0.0"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      dev-tools:
+        patterns: ["eslint*", "@eslint*", "vitest*", "vite*", "@vitejs*", "jsdom*", "@testing-library*", "postcss*", "autoprefixer*"]
+    ignore:
+      # eslint-plugin-react doesn't support ESLint 10 yet
+      - dependency-name: eslint
+        versions: [">=10.0.0"]
+      - dependency-name: "@eslint/js"
+        versions: [">=10.0.0"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

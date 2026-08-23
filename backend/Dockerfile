@@ -1,11 +1,11 @@
 # ── Dependencies ─────────────────────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
 # ── Runtime ──────────────────────────────────────────────────────────────────
-FROM node:20-alpine
+FROM node:22-alpine
 # wireguard-tools: backend runs `wg genkey` / `wg pubkey` to provision peers.
 # openssh-client: node-ssh shell. dumb-init: proper PID 1 signal forwarding
 # (SIGTERM → graceful shutdown in server.js).

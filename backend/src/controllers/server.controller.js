@@ -16,9 +16,8 @@ exports.serverHealth = asyncHandler(async (req, res) => {
   let xrayOk = false;
   let peerCount = 0;
 
-  let ssh = null;
   try {
-    ssh = await sshConnect(node);
+    const ssh = await sshConnect(node);
     const { stdout: wgOut } = await ssh.execCommand('wg show wg0');
     wgOk = wgOut.includes('wg0');
     peerCount = (wgOut.match(/peer:/g) || []).length;
