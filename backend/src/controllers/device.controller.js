@@ -1,6 +1,7 @@
 const Device = require('../models/Device');
 const ServerNode = require('../models/ServerNode');
 const vpn = require('../services/vpn.service');
+const xray = require('../services/xray.service');
 const provisioning = require('../services/provisioning.service');
 const { decryptPrivateKey } = require('../utils/crypto');
 const { generateQRBase64 } = require('../utils/qrcode');

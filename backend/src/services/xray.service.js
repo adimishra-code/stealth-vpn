@@ -82,10 +82,59 @@ async function fetchStatsForNode(serverNode) {
   return stdout;
 }
 
+function buildSingBoxConfig({ serverNode, uuid, deviceName, nodeKeys, sni = env.XRAY_SNI_DEST }) {
+  const tag = `StealthVPN-${deviceName || serverNode.name || 'node'}`;
+  return {
+    type: 'vless',
+    tag,
+    server: serverNode.ip,
+    server_port: serverNode.xrayPort || 443,
+    uuid,
+    flow: FLOW_VISION,
+    tls: {
+      enabled: true,
+      server_name: sni,
+      utls: {
+        enabled: true,
+        fingerprint: 'chrome',
+      },
+      reality: {
+        enabled: true,
+        public_key: nodeKeys?.realityPublicKey || '',
+        short_id: nodeKeys?.realityShortId || '',
+      },
+    },
+    packet_encoding: 'xudp',
+  };
+}
+
+function buildClashConfig({ serverNode, uuid, deviceName, nodeKeys, sni = env.XRAY_SNI_DEST }) {
+  const name = `StealthVPN-${deviceName || serverNode.name || 'node'}`;
+  return {
+    name,
+    type: 'vless',
+    server: serverNode.ip,
+    port: serverNode.xrayPort || 443,
+    uuid,
+    cipher: 'none',
+    tls: true,
+    udp: true,
+    flow: FLOW_VISION,
+    servername: sni,
+    'reality-opts': {
+      'public-key': nodeKeys?.realityPublicKey || '',
+      'short-id': nodeKeys?.realityShortId || '',
+    },
+    'client-fingerprint': 'chrome',
+  };
+}
+
 module.exports = {
   addXrayUser,
   removeXrayUser,
   fetchStatsForNode,
   buildVlessUri,
+  buildSingBoxConfig,
+  buildClashConfig,
   FLOW_VISION,
 };
