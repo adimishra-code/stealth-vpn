@@ -1,4 +1,4 @@
-const { buildVlessUri } = require('../src/services/xray.service');
+const { buildVlessUri, buildSingBoxConfig, buildClashConfig } = require('../src/services/xray.service');
 
 const serverNode = { name: 'mumbai', ip: '203.0.113.10', xrayPort: 443 };
 
@@ -52,5 +52,41 @@ describe('buildVlessUri (stealth-mode client URI)', () => {
       nodeKeys: { realityPublicKey: 'K', realityShortId: 'S' },
     });
     expect(uri).toContain('#StealthVPN-Pixel%208%20%26%20Fold');
+  });
+});
+
+describe('buildSingBoxConfig and buildClashConfig', () => {
+  test('generates valid sing-box outbound configuration', () => {
+    const singbox = buildSingBoxConfig({
+      serverNode,
+      uuid: '3f2b9c1e-8a5d-4b7f-9c2e-1d0a6b8f4e3d',
+      deviceName: 'Laptop',
+      nodeKeys: { realityPublicKey: 'REALITY_KEY_123', realityShortId: 'short123' },
+    });
+
+    expect(singbox.type).toBe('vless');
+    expect(singbox.tag).toBe('StealthVPN-Laptop');
+    expect(singbox.server).toBe('203.0.113.10');
+    expect(singbox.server_port).toBe(443);
+    expect(singbox.uuid).toBe('3f2b9c1e-8a5d-4b7f-9c2e-1d0a6b8f4e3d');
+    expect(singbox.tls.reality.public_key).toBe('REALITY_KEY_123');
+    expect(singbox.tls.reality.short_id).toBe('short123');
+  });
+
+  test('generates valid clash meta proxy configuration', () => {
+    const clash = buildClashConfig({
+      serverNode,
+      uuid: '3f2b9c1e-8a5d-4b7f-9c2e-1d0a6b8f4e3d',
+      deviceName: 'Laptop',
+      nodeKeys: { realityPublicKey: 'REALITY_KEY_123', realityShortId: 'short123' },
+    });
+
+    expect(clash.type).toBe('vless');
+    expect(clash.name).toBe('StealthVPN-Laptop');
+    expect(clash.server).toBe('203.0.113.10');
+    expect(clash.port).toBe(443);
+    expect(clash.uuid).toBe('3f2b9c1e-8a5d-4b7f-9c2e-1d0a6b8f4e3d');
+    expect(clash['reality-opts']['public-key']).toBe('REALITY_KEY_123');
+    expect(clash['reality-opts']['short-id']).toBe('short123');
   });
 });

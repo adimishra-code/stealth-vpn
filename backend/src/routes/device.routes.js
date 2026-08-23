@@ -13,8 +13,10 @@ router.use(deviceLimiter);
 router.get('/', deviceController.listDevices);
 router.post('/', validate(addDeviceSchema), deviceController.addDevice);
 router.delete('/:id', deviceController.revokeDevice);
+router.get('/:id/config', deviceController.downloadConfig);
 router.post('/:id/config', deviceController.downloadConfig);
 router.get('/:id/qr', deviceController.qrcode);
+router.get('/:id/vless', deviceController.getVlessConfig);
 router.patch('/:id/mode', validate(updateDeviceModeSchema), deviceController.toggleMode);
 router.get('/:id/bandwidth', deviceController.getBandwidth);
 

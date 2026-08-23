@@ -12,10 +12,10 @@ const wgSteps = [
 ]
 
 const stealthSteps = [
-  { os: 'v2rayN', cmd: 'Import the VLESS URI below → select the Reality node → connect' },
-  { os: 'V2RayNG', cmd: 'Import URI from clipboard → tap the connection to activate' },
-  { os: 'Shadowrocket', cmd: 'Scan or paste the URI → toggle it on' },
-  { os: 'Desktop', cmd: 'Use v2rayN / Nekoray with the copied URI — TCP 443, cloaked as TLS 1.3' },
+  { os: 'v2rayN / Nekoray', cmd: 'Import the VLESS URI below → select the Reality node → connect' },
+  { os: 'V2RayNG / Streisand', cmd: 'Import URI from clipboard or scan QR → tap to activate' },
+  { os: 'Shadowrocket / Sing-Box', cmd: 'Scan or paste the Reality URI → toggle connection on' },
+  { os: 'Clash Meta / Verge', cmd: 'Import VLESS Reality proxy into config → select proxy node' },
 ]
 
 export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose, vlessUri, vlessQrDataUrl }) {

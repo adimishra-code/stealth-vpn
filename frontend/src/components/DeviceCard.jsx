@@ -3,8 +3,8 @@ import PropTypes from 'prop-types'
 import { useSelector } from 'react-redux'
 import { Link } from 'react-router'
 import { QRCodeSVG } from 'qrcode.react'
-import { Laptop, Smartphone, Download, QrCode, Trash2, X, Activity, Calendar, RefreshCw } from 'lucide-react'
-import { useGetQrQuery, useDownloadConfigMutation, useRevokeDeviceMutation } from '../features/devices/devicesApi'
+import { Laptop, Smartphone, Download, QrCode, Trash2, X, Activity, Calendar, RefreshCw, Copy, Check, Radar, Zap } from 'lucide-react'
+import { useGetQrQuery, useGetVlessQuery, useDownloadConfigMutation, useRevokeDeviceMutation } from '../features/devices/devicesApi'
 import { selectUser } from '../features/auth/authSlice'
 import ModeToggle from './ModeToggle'
 
@@ -20,9 +20,6 @@ function isPhoneName(name = '') {
 
 export default function DeviceCard({ device }) {
   const user = useSelector(selectUser)
-  // Per-device display uses the user's plan expiry — every device on the
-  // account expires together when the plan lapses (User.planExpiresAt is
-  // the single source of truth, devices don't carry their own).
   const planExpiresAt = user?.planExpiresAt ? new Date(user.planExpiresAt) : null
   const daysLeft = planExpiresAt
     ? Math.max(0, Math.ceil((planExpiresAt - new Date()) / 86400000))
@@ -31,11 +28,15 @@ export default function DeviceCard({ device }) {
   const expired = daysLeft === 0 && planExpiresAt && planExpiresAt < new Date()
   const [confirmRevoke, setConfirmRevoke] = useState(false)
   const [showQr, setShowQr] = useState(false)
+  const [qrTab, setQrTab] = useState(device.mode === 'stealth' ? 'stealth' : 'wireguard')
+  const [copiedVless, setCopiedVless] = useState(false)
+
   const { data: qrData, refetch: fetchQr, isFetching: qrLoading } = useGetQrQuery(device.id, { skip: !showQr })
+  const { data: vlessData, refetch: fetchVless, isFetching: vlessLoading } = useGetVlessQuery(device.id, { skip: !showQr })
   const [downloadConfigMutation] = useDownloadConfigMutation()
   const [revoke, { isLoading: revoking }] = useRevokeDeviceMutation()
 
-  const downloadConfig = async () => {
+  const downloadConfig = async (_format = 'wireguard') => {
     const result = await downloadConfigMutation(device.id)
     if (result.data) {
       const blob = new Blob([result.data], { type: 'text/plain' })
@@ -45,6 +46,17 @@ export default function DeviceCard({ device }) {
       a.download = `stealth-${device.deviceName || 'device'}.conf`
       a.click()
       URL.revokeObjectURL(url)
+    }
+  }
+
+  const handleCopyVless = async () => {
+    if (!vlessData?.vlessUri) return
+    try {
+      await navigator.clipboard.writeText(vlessData.vlessUri)
+      setCopiedVless(true)
+      setTimeout(() => setCopiedVless(false), 2000)
+    } catch {
+      window.alert(vlessData.vlessUri)
     }
   }
 
@@ -67,9 +79,7 @@ export default function DeviceCard({ device }) {
     : status === 'expired'
       ? 'chip-warn'
       : 'chip-danger'
-  // Amber dot for active devices whose plan is about to lapse — visual
-  // nudge that the user needs to renew. Distinct from the terminal
-  // "expired" chip used when status==='expired'.
+
   const dotTone = expired
     ? 'bg-warn'
     : status === 'expired'
@@ -136,19 +146,22 @@ export default function DeviceCard({ device }) {
 
         {device.isActive && (
           <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
-            <button onClick={downloadConfig} className="btn-secondary !py-1.5 !px-3 text-xs">
+            <button onClick={() => downloadConfig('wireguard')} className="btn-secondary !py-1.5 !px-3 text-xs" title="Download WireGuard .conf">
               <Download size={13} />
               .conf
             </button>
             <button
               onClick={() => {
                 setShowQr(!showQr)
-                if (!showQr) fetchQr()
+                if (!showQr) {
+                  fetchQr()
+                  fetchVless()
+                }
               }}
               className="btn-secondary !py-1.5 !px-3 text-xs"
             >
               {showQr ? <X size={13} /> : <QrCode size={13} />}
-              {showQr ? 'Close' : 'QR code'}
+              {showQr ? 'Close' : 'QR / Key'}
             </button>
             <button
               onClick={handleRevoke}
@@ -208,15 +221,77 @@ export default function DeviceCard({ device }) {
       )}
 
       {showQr && (
-        <div className="mt-4 flex flex-col items-center gap-2 rounded-lg bg-white p-5 animate-fade-in">
-          {qrLoading ? (
-            <div className="h-[180px] w-[180px] skeleton" />
-          ) : qrData?.qrDataUrl ? (
-            <>
-              <QRCodeSVG value={qrData.qrDataUrl} size={180} />
-              <p className="text-[11px] text-faint">Scan with the WireGuard app</p>
-            </>
-          ) : null}
+        <div className="mt-4 rounded-xl border border-line bg-void/70 p-4 animate-fade-in">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <button
+              onClick={() => setQrTab('stealth')}
+              className={`flex items-center gap-1.5 text-xs font-semibold py-1.5 px-3 rounded-lg border transition-colors ${
+                qrTab === 'stealth'
+                  ? 'bg-accent-400/15 border-accent-400/40 text-accent-300'
+                  : 'border-line text-faint hover:text-ink'
+              }`}
+            >
+              <Radar size={13} />
+              Stealth Reality (VLESS)
+            </button>
+            <button
+              onClick={() => setQrTab('wireguard')}
+              className={`flex items-center gap-1.5 text-xs font-semibold py-1.5 px-3 rounded-lg border transition-colors ${
+                qrTab === 'wireguard'
+                  ? 'bg-raised border-line-strong text-ink'
+                  : 'border-line text-faint hover:text-ink'
+              }`}
+            >
+              <Zap size={13} />
+              WireGuard
+            </button>
+          </div>
+
+          {qrTab === 'stealth' && (
+            <div className="flex flex-col items-center gap-3">
+              {vlessLoading ? (
+                <div className="h-[180px] w-[180px] skeleton" />
+              ) : vlessData?.qrDataUrl ? (
+                <>
+                  <div className="bg-white rounded-lg p-3">
+                    <QRCodeSVG value={vlessData.qrDataUrl} size={180} />
+                  </div>
+                  <div className="w-full flex items-center gap-2 max-w-md">
+                    <code className="flex-1 font-mono text-[11px] text-accent-300 bg-surface border border-line rounded-lg px-2.5 py-2 truncate">
+                      {vlessData.vlessUri}
+                    </code>
+                    <button
+                      onClick={handleCopyVless}
+                      className="btn-secondary !py-2 !px-3 text-xs shrink-0"
+                    >
+                      {copiedVless ? <Check size={13} className="text-accent-400" /> : <Copy size={13} />}
+                      {copiedVless ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-faint text-center">Scan with v2rayN / V2RayNG / Shadowrocket for cloaked HTTPS tunnel.</p>
+                </>
+              ) : (
+                <p className="text-xs text-warn">Stealth Reality credentials unavailable.</p>
+              )}
+            </div>
+          )}
+
+          {qrTab === 'wireguard' && (
+            <div className="flex flex-col items-center gap-3">
+              {qrLoading ? (
+                <div className="h-[180px] w-[180px] skeleton" />
+              ) : qrData?.qrDataUrl ? (
+                <>
+                  <div className="bg-white rounded-lg p-3">
+                    <QRCodeSVG value={qrData.qrDataUrl} size={180} />
+                  </div>
+                  <p className="text-[11px] text-faint">Scan with the official WireGuard app on iOS / Android.</p>
+                </>
+              ) : (
+                <p className="text-xs text-warn">QR code unavailable.</p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -241,3 +316,4 @@ DeviceCard.propTypes = {
     lastSeen: PropTypes.string,
   }).isRequired,
 }
+

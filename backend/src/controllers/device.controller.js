@@ -81,10 +81,57 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
   if (!device) throw new ApiError(404, 'Device not found');
   if (!device.isActive) throw new ApiError(400, 'Device revoked');
 
-  const privateKey = decryptPrivateKey(device.wgPrivateKey);
   const serverNode = await ServerNode.findOne({ name: device.serverNode });
   if (!serverNode) throw new ApiError(404, 'Server node not found');
 
+  const format = (req.query.format || req.body?.format || 'wireguard').toLowerCase();
+
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+
+  if (format === 'vless' || format === 'singbox' || format === 'clash') {
+    if (!device.encryptedXrayUUID) {
+      throw new ApiError(400, 'Device does not have stealth credentials');
+    }
+    const uuid = decryptPrivateKey(device.encryptedXrayUUID);
+    const nodeKeys = provisioning.nodeRealityKeys(device.serverNode);
+
+    if (format === 'singbox') {
+      const singboxConfig = xray.buildSingBoxConfig({
+        serverNode,
+        uuid,
+        deviceName: device.deviceName,
+        nodeKeys,
+      });
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}-singbox.json"`);
+      return res.send(JSON.stringify(singboxConfig, null, 2));
+    }
+
+    if (format === 'clash') {
+      const clashConfig = xray.buildClashConfig({
+        serverNode,
+        uuid,
+        deviceName: device.deviceName,
+        nodeKeys,
+      });
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}-clash.json"`);
+      return res.send(JSON.stringify({ proxies: [clashConfig] }, null, 2));
+    }
+
+    const vlessUri = xray.buildVlessUri({
+      serverNode,
+      uuid,
+      deviceName: device.deviceName,
+      nodeKeys,
+    });
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}-vless.txt"`);
+    return res.send(vlessUri);
+  }
+
+  const privateKey = decryptPrivateKey(device.wgPrivateKey);
   const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode });
 
   // API-03: the .conf embeds the WireGuard PRIVATE KEY — browsers and
@@ -92,8 +139,6 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
   // Content-Type/Disposition keep the download UX intact.
   res.setHeader('Content-Type', 'text/plain');
   res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}.conf"`);
-  res.setHeader('Cache-Control', 'no-store, max-age=0');
-  res.setHeader('Pragma', 'no-cache');
   res.send(config);
 });
 
@@ -112,6 +157,48 @@ exports.qrcode = asyncHandler(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   res.json({ qrDataUrl, deviceName: device.deviceName });
+});
+
+exports.getVlessConfig = asyncHandler(async (req, res) => {
+  const device = await Device.findOne({ _id: req.params.id, userId: req.user._id });
+  if (!device) throw new ApiError(404, 'Device not found');
+  if (!device.isActive) throw new ApiError(400, 'Device revoked');
+  if (!device.encryptedXrayUUID) throw new ApiError(400, 'Device does not have stealth credentials');
+
+  const uuid = decryptPrivateKey(device.encryptedXrayUUID);
+  const serverNode = await ServerNode.findOne({ name: device.serverNode });
+  if (!serverNode) throw new ApiError(404, 'Server node not found');
+
+  const nodeKeys = provisioning.nodeRealityKeys(device.serverNode);
+  const vlessUri = xray.buildVlessUri({
+    serverNode,
+    uuid,
+    deviceName: device.deviceName,
+    nodeKeys,
+  });
+  const qrDataUrl = await generateQRBase64(vlessUri);
+  const singbox = xray.buildSingBoxConfig({
+    serverNode,
+    uuid,
+    deviceName: device.deviceName,
+    nodeKeys,
+  });
+  const clash = xray.buildClashConfig({
+    serverNode,
+    uuid,
+    deviceName: device.deviceName,
+    nodeKeys,
+  });
+
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.json({
+    vlessUri,
+    qrDataUrl,
+    deviceName: device.deviceName,
+    singbox,
+    clash,
+  });
 });
 
 exports.toggleMode = asyncHandler(async (req, res) => {

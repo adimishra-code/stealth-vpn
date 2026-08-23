@@ -20,6 +20,9 @@ export const devicesApi = api.injectEndpoints({
     getQr: build.query({
       query: (id) => ({ url: `/devices/${id}/qr` }),
     }),
+    getVless: build.query({
+      query: (id) => ({ url: `/devices/${id}/vless` }),
+    }),
     toggleMode: build.mutation({
       query: ({ id, mode }) => ({ url: `/devices/${id}/mode`, method: 'PATCH', body: { mode } }),
       invalidatesTags: ['Devices'],
@@ -36,6 +39,7 @@ export const {
   useRevokeDeviceMutation,
   useDownloadConfigMutation,
   useGetQrQuery,
+  useGetVlessQuery,
   useToggleModeMutation,
   useGetBandwidthQuery,
 } = devicesApi
