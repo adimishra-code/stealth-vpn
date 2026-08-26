@@ -134,11 +134,20 @@ ListenPort = ${WG_LISTEN_PORT}
 # DROP before the ACCEPTs — an appended -i wg0 -o wg0 DROP sits behind the
 # -i wg0 ACCEPT and never fires (peer-to-peer traffic would slip through).
 PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -o ${WG_INTERFACE} -j DROP
+# SEC-04: Drop SSRF access to cloud provider instance metadata (169.254.169.254) and private RFC 1918 ranges
+PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -d 169.254.169.254 -j DROP
+PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -d 10.0.0.0/8 -j DROP
+PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -d 172.16.0.0/12 -j DROP
+PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -d 192.168.0.0/16 -j DROP
 PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -j ACCEPT
 PostUp   = iptables -A FORWARD -o ${WG_INTERFACE} -j ACCEPT
 PostUp   = iptables -t nat -A POSTROUTING -o ${IFACE} -j MASQUERADE
 
 PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -o ${WG_INTERFACE} -j DROP
+PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -d 169.254.169.254 -j DROP
+PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -d 10.0.0.0/8 -j DROP
+PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -d 172.16.0.0/12 -j DROP
+PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -d 192.168.0.0/16 -j DROP
 PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -j ACCEPT
 PostDown = iptables -D FORWARD -o ${WG_INTERFACE} -j ACCEPT
 PostDown = iptables -t nat -D POSTROUTING -o ${IFACE} -j MASQUERADE

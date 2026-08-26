@@ -129,11 +129,20 @@ ListenPort = 51820
 # appended -i wg0 -o wg0 DROP would sit behind it and never fire (peer-to-peer
 # traffic on the tunnel would slip through). Insert order = rule order.
 PostUp   = iptables -A FORWARD -i wg0 -o wg0 -j DROP
+# SEC-04: Drop SSRF access to cloud provider instance metadata (169.254.169.254) and private RFC 1918 ranges
+PostUp   = iptables -A FORWARD -i wg0 -d 169.254.169.254 -j DROP
+PostUp   = iptables -A FORWARD -i wg0 -d 10.0.0.0/8 -j DROP
+PostUp   = iptables -A FORWARD -i wg0 -d 172.16.0.0/12 -j DROP
+PostUp   = iptables -A FORWARD -i wg0 -d 192.168.0.0/16 -j DROP
 PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT
 PostUp   = iptables -A FORWARD -o wg0 -j ACCEPT
 PostUp   = iptables -t nat -A POSTROUTING -o ${IFACE} -j MASQUERADE
 
 PostDown = iptables -D FORWARD -i wg0 -o wg0 -j DROP
+PostDown = iptables -D FORWARD -i wg0 -d 169.254.169.254 -j DROP
+PostDown = iptables -D FORWARD -i wg0 -d 10.0.0.0/8 -j DROP
+PostDown = iptables -D FORWARD -i wg0 -d 172.16.0.0/12 -j DROP
+PostDown = iptables -D FORWARD -i wg0 -d 192.168.0.0/16 -j DROP
 PostDown = iptables -D FORWARD -i wg0 -j ACCEPT
 PostDown = iptables -D FORWARD -o wg0 -j ACCEPT
 PostDown = iptables -t nat -D POSTROUTING -o ${IFACE} -j MASQUERADE
