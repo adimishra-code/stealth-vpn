@@ -10,6 +10,7 @@ wg-keys/
 *.conf
 # Deployment template — placeholders only, operators copy it onto the host.
 !deploy/nginx.conf
+!deploy/nginx-stream.conf
 
 # Dependencies
 node_modules/
