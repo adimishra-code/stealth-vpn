@@ -199,6 +199,23 @@ async function provisionPeer({ serverNode, publicKey, assignedIP, plan }) {
   return { success: true, tcHandle };
 }
 
+async function applyThrottle({ serverNode, assignedIP }) {
+  const ssh = await sshConnect(serverNode);
+  const tcHandle = generateTCHandle();
+  await ssh.execCommand(`
+      sudo -n tc class add dev wg0 parent 1:0 classid 1:${tcHandle} htb rate 10mbit burst 15mbit
+      sudo -n tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 match ip dst ${assignedIP}/32 flowid 1:${tcHandle}
+      sudo -n tc class add dev wg0 parent 1:0 classid 2:${tcHandle} htb rate 10mbit burst 15mbit
+      sudo -n tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 match ip src ${assignedIP}/32 flowid 2:${tcHandle}
+  `);
+  logger.info('Throttle applied', {
+    node: serverNode.name,
+    assignedIP,
+    tcHandle,
+  });
+  return tcHandle;
+}
+
 async function removeThrottle({ serverNode, tcHandle }) {
   if (!tcHandle) return;
   const ssh = await sshConnect(serverNode);
@@ -262,6 +279,7 @@ module.exports = {
   randomUUID,
   provisionPeer,
   revokePeer,
+  applyThrottle,
   removeThrottle,
   generateWGConfig,
   createDeviceOnNode,

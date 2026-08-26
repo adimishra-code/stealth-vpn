@@ -51,22 +51,17 @@ async function applyRenewal({ gateway, orderId, paymentId }) {
   user.notified = {};
   await user.save();
 
-  // Throttle removal runs BEFORE the 200 so a device that just upgraded to
-  // Pro/Team stops being shaped immediately. The query filters by
-  // plan: 'basic', so re-entry on the same webhook (idempotent via the
-  // invoice claim above) finds zero devices. Failures are logged but do not
-  // fail the webhook — the next renewal retires them.
-  if (invoice.plan !== 'basic') {
-    try {
-      await applyPlanUpgradeCleanup(user._id, invoice.plan);
-    } catch (err) {
-      logger.error('[WEBHOOK] throttle cleanup failed — retried next renewal', {
-        orderId,
-        userId: user._id.toString(),
-        plan: invoice.plan,
-        error: err.message,
-      });
-    }
+  // SEC-11: Reconcile devices for new plan: revoke excess LRU devices if downgrading,
+  // apply basic throttling if moving to basic, or remove throttling if upgrading.
+  try {
+    await reconcileDevicesForPlan(user._id, invoice.plan);
+  } catch (err) {
+    logger.error('[WEBHOOK] device reconciliation failed on renewal/downgrade', {
+      orderId,
+      userId: user._id.toString(),
+      plan: invoice.plan,
+      error: err.message,
+    });
   }
 
   logger.info('Renewal applied', {
@@ -75,6 +70,86 @@ async function applyRenewal({ gateway, orderId, paymentId }) {
     planExpiresAt: user.planExpiresAt,
   });
   return 'ok';
+}
+
+// SEC-11: Plan downgrade reconciliation — enforces device caps by revoking
+// least-recently-used devices down to the new tier limit, and applies/removes
+// tc bandwidth throttling immediately.
+async function reconcileDevicesForPlan(userId, newPlan) {
+  const provisioningService = require('../services/provisioning.service');
+  const limit = provisioningService.PLAN_LIMITS[newPlan]?.devices ?? 1;
+
+  // LRU sorting: oldest lastSeen first, then oldest createdAt first
+  const activeDevices = await Device.find({ userId, isActive: true })
+    .sort({ lastSeen: 1, createdAt: 1 });
+
+  if (activeDevices.length > limit) {
+    const excessCount = activeDevices.length - limit;
+    const toRevoke = activeDevices.slice(0, excessCount);
+    const toRetain = activeDevices.slice(excessCount);
+
+    logger.info('Plan downgrade: revoking excess devices (LRU)', {
+      userId: userId.toString(),
+      newPlan,
+      limit,
+      revokingCount: toRevoke.length,
+    });
+
+    for (const dev of toRevoke) {
+      try {
+        await provisioningService.revokeDevice(dev, { status: 'downgraded' });
+      } catch (err) {
+        logger.error('Failed to revoke excess device on downgrade', {
+          deviceId: dev._id.toString(),
+          error: err.message,
+        });
+      }
+    }
+
+    if (newPlan === 'basic') {
+      for (const dev of toRetain) {
+        if (!dev.tcHandle) {
+          const node = await ServerNode.findOne({ name: dev.serverNode });
+          if (node) {
+            try {
+              const tcHandle = await vpn.applyThrottle({ serverNode: node, assignedIP: dev.assignedIP });
+              dev.tcHandle = tcHandle;
+              dev.plan = 'basic';
+              await dev.save();
+            } catch (err) {
+              logger.error('Failed to apply basic throttle on downgrade', {
+                deviceId: dev._id.toString(),
+                error: err.message,
+              });
+            }
+          }
+        }
+      }
+    }
+  } else if (newPlan === 'basic') {
+    // Apply basic throttle to retained devices if not already throttled
+    for (const dev of activeDevices) {
+      if (!dev.tcHandle) {
+        const node = await ServerNode.findOne({ name: dev.serverNode });
+        if (node) {
+          try {
+            const tcHandle = await vpn.applyThrottle({ serverNode: node, assignedIP: dev.assignedIP });
+            dev.tcHandle = tcHandle;
+            dev.plan = 'basic';
+            await dev.save();
+          } catch (err) {
+            logger.error('Failed to apply basic throttle on downgrade', {
+              deviceId: dev._id.toString(),
+              error: err.message,
+            });
+          }
+        }
+      }
+    }
+  } else {
+    // Upgrading away from basic -> remove throttling
+    await applyPlanUpgradeCleanup(userId, newPlan);
+  }
 }
 
 // D3 — plan upgrade path: moving OFF basic must remove the 10 Mbps tc
@@ -156,4 +231,5 @@ module.exports = {
   handleRazorpayFailure,
   handleStripeRenewal,
   applyPlanUpgradeCleanup,
+  reconcileDevicesForPlan,
 };
