@@ -52,9 +52,19 @@ const serverNodeSchema = z
   .regex(/^[a-zA-Z0-9_-]+$/, 'Invalid server node format')
   .default('auto');
 
+const deviceNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(
+    /^[a-zA-Z0-9 _-]+$/,
+    'Device name may only contain alphanumeric characters, spaces, underscores, and hyphens'
+  );
+
 // ── Device schemas ────────────────────────────────────────────────────────────
 const addDeviceSchema = z.object({
-  deviceName: z.string().min(1).max(64),
+  deviceName: deviceNameSchema,
   serverNode: serverNodeSchema,
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
 });
@@ -67,7 +77,7 @@ const updateDeviceModeSchema = z.object({
 const createOrderSchema = z.object({
   plan: z.enum(['basic', 'pro', 'team']),
   serverNode: serverNodeSchema,
-  deviceName: z.string().min(1).max(64),
+  deviceName: deviceNameSchema,
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
 });
 
@@ -77,14 +87,14 @@ const verifyPaymentSchema = z.object({
   signature: z.string().min(1),
   plan: z.enum(['basic', 'pro', 'team']),
   serverNode: serverNodeSchema,
-  deviceName: z.string().min(1).max(64),
+  deviceName: deviceNameSchema,
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
 });
 
 const stripeSessionSchema = z.object({
   plan: z.enum(['basic', 'pro', 'team']),
   serverNode: serverNodeSchema,
-  deviceName: z.string().min(1).max(64),
+  deviceName: deviceNameSchema,
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
   successUrl: appOriginUrl(),
   cancelUrl: appOriginUrl(),

@@ -96,6 +96,7 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
     const uuid = decryptPrivateKey(device.encryptedXrayUUID);
     const nodeKeys = provisioning.nodeRealityKeys(device.serverNode);
 
+    const safeFileName = encodeURIComponent(String(device.deviceName || 'device').replace(/[^a-zA-Z0-9 _-]/g, '_'));
     if (format === 'singbox') {
       const singboxConfig = xray.buildSingBoxConfig({
         serverNode,
@@ -104,7 +105,7 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
         nodeKeys,
       });
       res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}-singbox.json"`);
+      res.setHeader('Content-Disposition', `attachment; filename="stealth-${safeFileName}-singbox.json"`);
       return res.send(JSON.stringify(singboxConfig, null, 2));
     }
 
@@ -116,7 +117,7 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
         nodeKeys,
       });
       res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}-clash.json"`);
+      res.setHeader('Content-Disposition', `attachment; filename="stealth-${safeFileName}-clash.json"`);
       return res.send(JSON.stringify({ proxies: [clashConfig] }, null, 2));
     }
 
@@ -127,10 +128,11 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
       nodeKeys,
     });
     res.setHeader('Content-Type', 'text/plain');
-    res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}-vless.txt"`);
+    res.setHeader('Content-Disposition', `attachment; filename="stealth-${safeFileName}-vless.txt"`);
     return res.send(vlessUri);
   }
 
+  const safeFileName = encodeURIComponent(String(device.deviceName || 'device').replace(/[^a-zA-Z0-9 _-]/g, '_'));
   const privateKey = decryptPrivateKey(device.wgPrivateKey);
   const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode });
 
@@ -138,7 +140,7 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
   // intermediaries must never cache it (a shared machine would leak the key).
   // Content-Type/Disposition keep the download UX intact.
   res.setHeader('Content-Type', 'text/plain');
-  res.setHeader('Content-Disposition', `attachment; filename="stealth-${device.deviceName}.conf"`);
+  res.setHeader('Content-Disposition', `attachment; filename="stealth-${safeFileName}.conf"`);
   res.send(config);
 });
 

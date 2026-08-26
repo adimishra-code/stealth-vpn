@@ -88,7 +88,7 @@ describe('Device Endpoints (VLESS & Multi-format downloads)', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/plain');
-    expect(res.headers['content-disposition']).toContain('stealth-My MacBook.conf');
+    expect(res.headers['content-disposition']).toContain('stealth-My%20MacBook.conf');
     expect(res.text).toContain('[Interface]');
     expect(res.text).toContain('[Peer]');
   });
@@ -117,5 +117,25 @@ describe('Device Endpoints (VLESS & Multi-format downloads)', () => {
     const parsed = JSON.parse(res.text);
     expect(parsed.proxies).toBeDefined();
     expect(parsed.proxies[0].type).toBe('vless');
+  });
+
+  test('SEC-16: POST /api/devices rejects script injection and CRLF in deviceName', async () => {
+    const payloads = [
+      '<script>alert(1)</script>',
+      'device\r\nSet-Cookie: evil=1',
+      'device"; filename="hack.exe',
+      'device&quot;foo',
+      'device/../../traversal',
+    ];
+
+    for (const badName of payloads) {
+      const res = await request(app)
+        .post('/api/devices')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ deviceName: badName, serverNode: 'mumbai', mode: 'stealth' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Validation failed');
+      expect(res.body.details[0].message).toContain('Device name may only contain');
+    }
   });
 });
