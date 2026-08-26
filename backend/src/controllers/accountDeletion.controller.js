@@ -40,6 +40,17 @@ exports.requestAccountDeletion = asyncHandler(async (req, res) => {
     }
   }
 
+  // SEC-21: Cancel recurring subscriptions at Stripe/Razorpay so user is not billed during grace period
+  const paymentService = require('../services/payment.service');
+  try {
+    await paymentService.cancelCustomerSubscriptions(user);
+  } catch (err) {
+    logger.error('Deletion: failed to cancel gateway subscriptions', {
+      userId: user._id.toString(),
+      error: err.message,
+    });
+  }
+
   await Invoice.updateMany({ userId: user._id }, { deletionScheduledAt });
 
   clearRefreshCookie(res);

@@ -93,6 +93,67 @@ function verifyStripeWebhook(rawBody, signature) {
   }
 }
 
+// SEC-21: Cancel gateway recurring subscriptions when an account is marked for deletion
+async function cancelCustomerSubscriptions(user) {
+  const Invoice = require('../models/Invoice');
+  const results = { stripe: 0, razorpay: 0, errors: [] };
+
+  // Cancel active Stripe subscriptions for this customer
+  if (user.stripeCustomerId && env.STRIPE_SECRET_KEY) {
+    try {
+      const subs = await stripe.subscriptions.list({
+        customer: user.stripeCustomerId,
+        status: 'active',
+      });
+      if (subs && Array.isArray(subs.data)) {
+        for (const sub of subs.data) {
+          await stripe.subscriptions.cancel(sub.id);
+          results.stripe++;
+          logger.info('Stripe subscription cancelled on account deletion', {
+            userId: user._id.toString(),
+            subscriptionId: sub.id,
+          });
+        }
+      }
+    } catch (err) {
+      results.errors.push(`Stripe cancel error: ${err.message}`);
+      logger.error('Failed to cancel Stripe subscription on deletion', {
+        userId: user._id.toString(),
+        error: err.message,
+      });
+    }
+  }
+
+  // Cancel active Razorpay subscriptions if present
+  if (user.razorpayCustomerId && env.RAZORPAY_KEY_ID) {
+    try {
+      if (razorpay.subscriptions && typeof razorpay.subscriptions.all === 'function') {
+        const rzSubs = await razorpay.subscriptions.all({ customer_id: user.razorpayCustomerId });
+        if (rzSubs && Array.isArray(rzSubs.items)) {
+          for (const sub of rzSubs.items) {
+            if (sub.status === 'active') {
+              await razorpay.subscriptions.cancel(sub.id);
+              results.razorpay++;
+              logger.info('Razorpay subscription cancelled on account deletion', {
+                userId: user._id.toString(),
+                subscriptionId: sub.id,
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      results.errors.push(`Razorpay cancel error: ${err.message}`);
+      logger.error('Failed to cancel Razorpay subscription on deletion', {
+        userId: user._id.toString(),
+        error: err.message,
+      });
+    }
+  }
+
+  return results;
+}
+
 module.exports = {
   PLAN_PRICES_INR,
   PLAN_PRICES_USD,
@@ -105,4 +166,5 @@ module.exports = {
   createStripeCheckoutSession,
   retrieveStripeSession,
   verifyStripeWebhook,
+  cancelCustomerSubscriptions,
 };
