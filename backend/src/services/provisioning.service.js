@@ -239,11 +239,9 @@ async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName,
     nodeKeys: nodeRealityKeys(resolvedNodeName),
   });
 
-  // Email the config + VLESS URI to the user. Fire-and-forget so a slow SMTP
-  // server never delays the provisioning response; the user already has the
-  // config in-app and the dashboard QR button stays the primary recovery.
-  emailService.sendConfigEmail(user, device, configString, vlessUri).catch((err) => {
-    logger.error('Config email failed', { error: err.message, deviceId: device._id.toString() });
+  // SEC-01: Notify user without passing plaintext key material or VLESS URIs
+  emailService.sendConfigEmail(user, device).catch((err) => {
+    logger.error('Config email notification failed', { error: err.message, deviceId: device._id.toString() });
   });
 
   const vlessQrDataUrl = await generateQRBase64(vlessUri);
