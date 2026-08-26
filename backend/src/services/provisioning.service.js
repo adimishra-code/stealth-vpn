@@ -39,7 +39,10 @@ async function enforceDeviceLimit(userId, plan) {
 // transactions. Prevents TOCTOU between enforceDeviceLimit and Device.create.
 async function enforceDeviceLimitAtomic(userId, plan, session) {
   const limit = PLAN_LIMITS[plan]?.devices ?? 0;
-  const activeDevices = await Device.countDocuments({ userId, isActive: true }).session(session);
+  const query = Device.countDocuments({ userId, isActive: true });
+  const activeDevices = (session && typeof query?.session === 'function')
+    ? await query.session(session)
+    : await query;
   if (activeDevices >= limit) {
     throw new ApiError(403, `${plan.toUpperCase()} plan allows max ${limit} device(s)`);
   }
@@ -109,7 +112,7 @@ function withUserLock(userId, fn) {
 const MAX_ALLOCATION_RETRIES = 3;
 
 async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName, mode }) {
-  await enforceDeviceLimit(user._id, plan);
+  await enforceDeviceLimitAtomic(user._id, plan);
 
   const resolvedNodeName = await resolveServerNode(serverNodeName);
 
@@ -142,6 +145,9 @@ async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName,
       tcHandle = provisioned.tcHandle || null;
       await xray.addXrayUser({ serverNode, uuid, flow: xray.FLOW_VISION });
       xrayAdded = true;
+
+      // SEC-10: Atomic pre-commit check to prevent race conditions during SSH latency
+      await enforceDeviceLimitAtomic(user._id, plan);
 
       device = await Device.create({
         userId: user._id,

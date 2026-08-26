@@ -190,5 +190,32 @@ describe('Provisioning API (integration)', () => {
     expect(vpn.revokePeer).toHaveBeenCalledTimes(3);
     expect(xray.removeXrayUser).toHaveBeenCalledTimes(3);
   });
+
+  test('SEC-10: concurrent provisioning requests for a user at device limit reject excess attempts', async () => {
+    let currentDeviceCount = 0;
+    Device.countDocuments.mockImplementation(async (query) => {
+      if (query.serverNode) return 10;
+      return currentDeviceCount;
+    });
+    Device.create.mockImplementation(async (props) => {
+      currentDeviceCount++;
+      return { _id: `dev-${currentDeviceCount}`, ...props };
+    });
+
+    // Fire 5 simultaneous requests when allowed max is 3 (pro plan)
+    const promises = Array.from({ length: 5 }).map((_, i) =>
+      request(app)
+        .post('/api/devices')
+        .set(authHeader)
+        .send({ deviceName: `dev-concurrent-${i}`, serverNode: 'mumbai', mode: 'stealth' })
+    );
+
+    const responses = await Promise.all(promises);
+    const successes = responses.filter((r) => r.status === 201);
+    const rejected = responses.filter((r) => r.status === 403);
+
+    expect(successes.length).toBe(3);
+    expect(rejected.length).toBe(2);
+  });
 });
 
