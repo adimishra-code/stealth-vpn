@@ -56,10 +56,10 @@ cp "/etc/ssh/sshd_config" "/etc/ssh/sshd_config.bak.$(date +%s)"
 # Backend connects as non-root 'stealthnode' — root login is disabled.
 id -u stealthnode >/dev/null 2>&1 || useradd -r -m -s /bin/bash stealthnode
 
-# Sudoers whitelist: only the commands the control plane needs — no shell.
+# Sudoers whitelist: only the commands the control plane and killswitch need — no shell.
 cat > /etc/sudoers.d/stealthnode << SUDOERS
 # StealthVPN node commands only — no shell, no arbitrary commands.
-Cmnd_Alias VPNNODE = /usr/bin/wg set wg0 *, /usr/bin/wg show *, /usr/bin/wg-quick save wg0, /usr/sbin/tc class *, /usr/sbin/tc filter *, /usr/local/bin/xray api *
+Cmnd_Alias VPNNODE = /usr/bin/wg set wg0 *, /usr/bin/wg show *, /usr/bin/wg-quick save wg0, /usr/bin/wg-quick down wg0, /usr/sbin/tc class *, /usr/sbin/tc filter *, /usr/local/bin/xray api *, /bin/systemctl stop xray, /usr/bin/systemctl stop xray, /bin/systemctl stop unbound, /usr/bin/systemctl stop unbound, /sbin/ip link set dev wg0 down, /usr/sbin/ip link set dev wg0 down, /bin/ip link set dev wg0 down, /usr/bin/ip link set dev wg0 down
 stealthnode ALL=(root) NOPASSWD: VPNNODE
 Defaults!VPNNODE !requiretty
 SUDOERS

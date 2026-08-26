@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-SSH_USER="${SSH_USER:-root}"
+SSH_USER="${SSH_USER:-stealthnode}"
 SSH_KEY="${SSH_PRIVATE_KEY_PATH:-}"
 
 if [[ $# -gt 0 ]]; then
@@ -43,7 +43,7 @@ SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-
 for ip in "${NODES[@]}"; do
   echo "==> ${ip}: stopping xray + wg0"
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${ip}" \
-    'systemctl stop xray 2>/dev/null || true; wg-quick down wg0 2>/dev/null || true; true'
+    'sudo -n systemctl stop xray 2>/dev/null || true; sudo -n wg-quick down wg0 2>/dev/null || sudo -n ip link set dev wg0 down 2>/dev/null || true; sudo -n systemctl stop unbound 2>/dev/null || true; true'
   echo "==> ${ip}: down"
 done
 
