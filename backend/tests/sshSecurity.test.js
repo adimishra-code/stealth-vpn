@@ -91,3 +91,32 @@ describe('Boot-time SSH Private Key Security Check (verifySshKeySecurity)', () =
     expect(wrapped.message).not.toContain('ENOENT');
   });
 });
+
+describe('Cluster Startup Configuration Guard (Risk 3)', () => {
+  const { verifyClusterConfiguration } = require('../server');
+
+  afterEach(() => {
+    delete process.env.NODE_APP_INSTANCE;
+    delete process.env.exec_mode;
+    delete env.REDIS_URL;
+  });
+
+  test('throws in cluster mode when REDIS_URL is not set', () => {
+    process.env.NODE_APP_INSTANCE = '0';
+    env.REDIS_URL = '';
+    expect(() => verifyClusterConfiguration()).toThrow('StealthVPN cannot run in cluster mode without REDIS_URL');
+  });
+
+  test('passes in cluster mode when REDIS_URL is set', () => {
+    process.env.NODE_APP_INSTANCE = '0';
+    env.REDIS_URL = 'redis://127.0.0.1:6379';
+    expect(() => verifyClusterConfiguration()).not.toThrow();
+  });
+
+  test('passes in fork mode without REDIS_URL', () => {
+    delete process.env.NODE_APP_INSTANCE;
+    delete process.env.exec_mode;
+    env.REDIS_URL = '';
+    expect(() => verifyClusterConfiguration()).not.toThrow();
+  });
+});

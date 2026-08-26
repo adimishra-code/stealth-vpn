@@ -32,9 +32,21 @@ function verifySshKeySecurity() {
   }
 }
 
+function verifyClusterConfiguration() {
+  const isCluster = process.env.NODE_APP_INSTANCE !== undefined || process.env.exec_mode === 'cluster';
+  if (isCluster && !env.REDIS_URL) {
+    const msg = 'CRITICAL: StealthVPN cannot run in cluster mode without REDIS_URL configured. ' +
+      'Running multiple workers without Redis breaks rate limiting, user locks, and session revocation. ' +
+      'Set REDIS_URL in your environment or run in fork mode (instances: 1).';
+    logger.error(msg);
+    throw new Error(msg);
+  }
+}
+
 const app = createApp();
 
 async function start() {
+  verifyClusterConfiguration();
   await connectDB();
   verifySshKeySecurity();
 
@@ -128,4 +140,4 @@ if (require.main === module) {
   registerProcessHandlers();
 }
 
-module.exports = { start, verifySshKeySecurity };
+module.exports = { start, verifySshKeySecurity, verifyClusterConfiguration };

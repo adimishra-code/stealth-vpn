@@ -50,6 +50,8 @@ const commonEnv = {
   NODE_FRANKFURT_REALITY_SHORT_ID: '',
   XRAY_API_URL: 'http://127.0.0.1:10085',
   XRAY_SNI_DEST: 'microsoft.com',
+  // Risk 3: REDIS_URL is REQUIRED if instances is scaled above 1 (cluster mode)
+  REDIS_URL: '',
 };
 
 module.exports = {
@@ -60,10 +62,9 @@ module.exports = {
       user: 'stealth',
       cwd: './backend',
       script: 'server.js',
-      // script resolves relative to cwd, and cwd is already ./backend,
-      // so script is just the entrypoint file (no ./ prefix needed)
-      instances: 'max', // one worker per CPU — stateless HTTP, safe to scale
-      exec_mode: 'cluster',
+      // Risk 3: Defaults to single instance fork mode. Cluster mode requires REDIS_URL.
+      instances: 1,
+      exec_mode: 'fork',
       kill_timeout: 10000, // matches the app's graceful shutdown budget (10s)
       max_memory_restart: '512M',
       env: {
