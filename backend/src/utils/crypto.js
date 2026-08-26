@@ -16,27 +16,28 @@ function deriveKey(hexKey, purpose) {
 }
 
 // AES-256-GCM envelope: fresh 12-byte IV per call, tag included. Format:
-//   <iv hex>:<ciphertext hex>:<auth tag hex>
+//   v1:<iv hex>:<ciphertext hex>:<auth tag hex>
 function encryptPrivateKey(privateKey, purpose = CRYPTO_PURPOSES.wg) {
   const key = deriveKey(env.WG_ENCRYPTION_KEY, purpose);
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(privateKey, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return iv.toString('hex') + ':' + encrypted.toString('hex') + ':' + tag.toString('hex');
+  return 'v1:' + iv.toString('hex') + ':' + encrypted.toString('hex') + ':' + tag.toString('hex');
 }
 
-// Rotation support (CRYPTO-01): try the current key first, then
-// WG_ENCRYPTION_KEY_PREVIOUS — set it BEFORE rotating WG_ENCRYPTION_KEY and
-// remove it once no device was provisioned under the old key. Without this a
-// key change would silently lose every stored private key. Writes always
-// use the current key.
-//
-// CRYPTO-03 migration: blobs written BEFORE purpose-scoping used the raw
-// master key. Those are tried last so old rows stay decryptable; once
-// re-encrypted (any write path), they move to a derived key permanently.
+// Rotation support (CRYPTO-01 & SEC-14): try the current key first, then
+// WG_ENCRYPTION_KEY_PREVIOUS. v1: tag identifies versioned envelope.
 function decryptPrivateKey(stored, purpose = CRYPTO_PURPOSES.wg) {
-  const [ivHex, encHex, tagHex] = stored.split(':');
+  if (!stored || typeof stored !== 'string') {
+    throw new Error('Invalid or missing encrypted payload');
+  }
+  const payload = stored.startsWith('v1:') ? stored.slice(3) : stored;
+  const parts = payload.split(':');
+  if (parts.length !== 3) {
+    throw new Error('Invalid ciphertext format');
+  }
+  const [ivHex, encHex, tagHex] = parts;
   const attempts = [{ key: deriveKey(env.WG_ENCRYPTION_KEY, purpose), label: 'derived-current' }];
   if (env.WG_ENCRYPTION_KEY_PREVIOUS) {
     attempts.push({ key: deriveKey(env.WG_ENCRYPTION_KEY_PREVIOUS, purpose), label: 'derived-previous' });

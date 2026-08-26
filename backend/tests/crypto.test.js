@@ -29,14 +29,16 @@ describe('WG private key encryption (AES-256-GCM at rest)', () => {
 
   test('tampered ciphertext fails to decrypt', () => {
     const stored = encryptPrivateKey('some-valid-wg-private-key-000');
-    const [iv, enc, tag] = stored.split(':');
-    const flipped = iv.slice(0, -2) + (iv.endsWith('ff') ? '00' : 'ff') + ':' + enc + ':' + tag;
+    const raw = stored.startsWith('v1:') ? stored.slice(3) : stored;
+    const [iv, enc, tag] = raw.split(':');
+    const flipped = (stored.startsWith('v1:') ? 'v1:' : '') + iv.slice(0, -2) + (iv.endsWith('ff') ? '00' : 'ff') + ':' + enc + ':' + tag;
     expect(() => decryptPrivateKey(flipped)).toThrow();
   });
 
-  test('format is iv:ciphertext:tag (hex)', () => {
+  test('format is v1:iv:ciphertext:tag (hex)', () => {
     const stored = encryptPrivateKey('key-for-format-check');
-    const parts = stored.split(':');
+    expect(stored.startsWith('v1:')).toBe(true);
+    const parts = stored.slice(3).split(':');
     expect(parts).toHaveLength(3);
     expect(parts[0]).toMatch(/^[0-9a-f]{24}$/); // 12-byte IV
     expect(parts[2]).toMatch(/^[0-9a-f]{32}$/); // 16-byte GCM tag
@@ -65,7 +67,8 @@ describe('purpose-scoped HKDF subkeys (CRYPTO-03)', () => {
   test('writes after the change use a derived key, not the raw master key', () => {
     const stored = encryptPrivateKey('fresh-wg-key');
     const raw = Buffer.from(env.WG_ENCRYPTION_KEY, 'hex');
-    const [ivHex, encHex, tagHex] = stored.split(':');
+    const payload = stored.startsWith('v1:') ? stored.slice(3) : stored;
+    const [ivHex, encHex, tagHex] = payload.split(':');
     const decipher = crypto.createDecipheriv(
       'aes-256-gcm',
       raw,

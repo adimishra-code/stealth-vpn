@@ -66,6 +66,40 @@ async function runKeyRotation() {
       }
     }
 
+    // SEC-14: Rotate User TOTP secrets so admins aren't locked out on key rotation
+    const User = require('../models/User');
+    let userLastId = null;
+
+    while (true) {
+      const userFilter = {
+        totpSecretEnc: { $exists: true, $ne: null },
+        ...(userLastId ? { _id: { $gt: userLastId } } : {}),
+      };
+      const users = await User.find(userFilter)
+        .select('+totpSecretEnc')
+        .sort({ _id: 1 })
+        .limit(BATCH_SIZE)
+        .lean();
+
+      if (!users.length) break;
+      userLastId = users[users.length - 1]._id;
+
+      for (const u of users) {
+        try {
+          const plainTotp = decryptPrivateKey(u.totpSecretEnc, CRYPTO_PURPOSES.totp);
+          const newTotpEnc = encryptPrivateKey(plainTotp, CRYPTO_PURPOSES.totp);
+          await User.updateOne({ _id: u._id }, { $set: { totpSecretEnc: newTotpEnc } });
+          rotated++;
+        } catch (err) {
+          errors++;
+          logger.error('Key rotation: failed to re-encrypt user TOTP secret', {
+            userId: u._id.toString(),
+            error: err.message,
+          });
+        }
+      }
+    }
+
     logger.info('Key rotation cron complete', { rotated, errors });
 
     if (errors > 0) {
