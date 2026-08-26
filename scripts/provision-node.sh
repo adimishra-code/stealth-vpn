@@ -99,6 +99,9 @@ else
 fi
 ufw allow 443/tcp comment 'Xray XTLS-Reality'
 ufw allow 51820/udp comment 'WireGuard'
+# SEC-12: Allow WireGuard clients on wg0 to reach the local Unbound DNS resolver (10.8.0.1:53)
+ufw allow in on wg0 to 10.8.0.1 port 53 proto udp comment 'WireGuard internal DNS (UDP)'
+ufw allow in on wg0 to 10.8.0.1 port 53 proto tcp comment 'WireGuard internal DNS (TCP)'
 ufw --force enable
 
 # ──────────────────────────────────────────────────────────────────────────────
