@@ -145,11 +145,8 @@ function createApp() {
   });
 
   // ── Health ───────────────────────────────────────────────────────────────
-  // Reports actual MongoDB connectivity (mongoose.readyState: 1 = connected)
-  // so an upstream load balancer / uptime monitor can distinguish a hung
-  // process from a dead DB. Returns 503 when the DB is unreachable — the API
-  // can serve cached health but cannot answer data requests without Mongo.
-  app.get('/health', (req, res) => {
+  // SEC-17: Mount on /api/health (so Nginx reverse proxy forwards it) and /health
+  const healthHandler = (req, res) => {
     const dbReady = mongoose.connection.readyState === 1;
     const status = dbReady ? 'ok' : 'degraded';
     res.status(dbReady ? 200 : 503).json({
@@ -157,7 +154,9 @@ function createApp() {
       db: dbReady ? 'connected' : 'disconnected',
       timestamp: new Date().toISOString(),
     });
-  });
+  };
+  app.get('/api/health', healthHandler);
+  app.get('/health', healthHandler);
 
   // ── Routes ────────────────────────────────────────────────────────────────
   app.use('/api/auth', authRoutes);

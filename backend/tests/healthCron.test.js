@@ -50,3 +50,18 @@ describe('Fronting-domain TLS check (INFRA-09)', () => {
     await expect(checkFrontingTls('203.0.113.1', 9, 500)).rejects.toThrow();
   });
 });
+
+describe('Health check route alignment (SEC-17)', () => {
+  const request = require('supertest');
+  const createApp = require('../src/app');
+  const app = createApp();
+
+  test('both /api/health and /health return status when probed', async () => {
+    const res1 = await request(app).get('/api/health');
+    const res2 = await request(app).get('/health');
+    expect([200, 503]).toContain(res1.status);
+    expect(res1.body.status).toBeDefined();
+    expect([200, 503]).toContain(res2.status);
+    expect(res2.body.status).toBeDefined();
+  });
+});

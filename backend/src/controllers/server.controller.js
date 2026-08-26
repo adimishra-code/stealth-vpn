@@ -8,33 +8,19 @@ exports.listServers = asyncHandler(async (req, res) => {
   res.json({ servers: nodes });
 });
 
+// SEC-17: Read cached node status from database (updated by background health cron)
+// instead of issuing live SSH commands on every client request.
 exports.serverHealth = asyncHandler(async (req, res) => {
   const node = await ServerNode.findOne({ name: req.params.name });
   if (!node) throw new ApiError(404, 'Server not found');
-
-  let wgOk = false;
-  let xrayOk = false;
-  let peerCount = 0;
-
-  try {
-    const ssh = await sshConnect(node);
-    const { stdout: wgOut } = await ssh.execCommand('wg show wg0');
-    wgOk = wgOut.includes('wg0');
-    peerCount = (wgOut.match(/peer:/g) || []).length;
-    const { stdout: xrayOut } = await ssh.execCommand('systemctl is-active xray');
-    xrayOk = xrayOut.trim() === 'active';
-  } catch (err) {
-    logger.warn('Health check SSH failed', { node: node.name, error: err.message });
-  }
 
   res.json({
     name: node.name,
     ip: node.ip,
     country: node.country,
     region: node.region,
-    wireguard: { ok: wgOk, peers: peerCount },
-    xray: { ok: xrayOk },
-    isOnline: wgOk && xrayOk,
+    isOnline: node.isOnline,
     lastHealthCheck: node.lastHealthCheck,
+    lastOnlineAt: node.lastOnlineAt,
   });
 });
