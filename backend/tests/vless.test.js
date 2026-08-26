@@ -14,6 +14,7 @@ describe('buildVlessUri (stealth-mode client URI)', () => {
     expect(uri.startsWith('vless://')).toBe(true);
     expect(uri).toContain('@203.0.113.10:443');
     expect(uri).toContain('encryption=none');
+    expect(uri).toContain('flow=xtls-rprx-vision');
     expect(uri).toContain('security=reality');
     expect(uri).toContain('sni=microsoft.com');
     expect(uri).toContain('fp=chrome');

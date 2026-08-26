@@ -19,9 +19,10 @@ function emailTagFor(uuid) {
 // Stealth-mode clients import this URI into any Xray/V2Ray client; it is the
 // client-side counterpart of the server's Reality inbound. nodeKeys are the
 // per-node Reality public key + shortId (from NODE_<NAME>_REALITY_* env vars).
-function buildVlessUri({ serverNode, uuid, deviceName, nodeKeys, sni = env.XRAY_SNI_DEST }) {
+function buildVlessUri({ serverNode, uuid, deviceName, nodeKeys, sni = env.XRAY_SNI_DEST, flow = FLOW_VISION }) {
   const query = [
     'encryption=none',
+    flow ? `flow=${flow}` : null,
     'security=reality',
     `sni=${sni}`,
     'fp=chrome',
