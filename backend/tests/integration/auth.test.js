@@ -399,6 +399,67 @@ describe('TOTP (ADMIN-01)', () => {
     expect(disable.status).toBe(200);
     expect(disable.body.totpEnabled).toBe(false);
   });
+
+  test('SEC-08: password reset revokes active sessions and invalidates prior access tokens', async () => {
+    const { hashToken } = require('../../src/utils/crypto');
+    const email = 'reset-sessions@example.com';
+    const originalPassword = 'Password123!';
+    const newPassword = 'NewPassword456!';
+
+    await request(app)
+      .post('/api/auth/register')
+      .send({ email, password: originalPassword });
+
+    const user = mockUsers.find((u) => u.email === email);
+    user.emailVerified = true;
+
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email, password: originalPassword });
+
+    expect(loginRes.status).toBe(200);
+    const oldAccessToken = loginRes.body.accessToken;
+    const oldCookie = refreshCookieOf(loginRes);
+
+    const meResBefore = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${oldAccessToken}`);
+    expect(meResBefore.status).toBe(200);
+
+    const rawResetToken = 'a'.repeat(64);
+    user.passwordResetToken = hashToken(rawResetToken);
+    user.passwordResetExpires = new Date(Date.now() + 3600000);
+
+    // Ensure timestamp advance past token iat (iat is integer seconds)
+    await new Promise((r) => setTimeout(r, 1100));
+
+    const resetRes = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token: rawResetToken, password: newPassword });
+
+    expect(resetRes.status).toBe(200);
+    expect(user.activeSessions.length).toBe(0);
+
+    // Old access token rejected
+    const meResAfter = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${oldAccessToken}`);
+    expect(meResAfter.status).toBe(401);
+    expect(meResAfter.body.error).toContain('password reset');
+
+    // Old refresh token rejected
+    const refreshRes = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', [oldCookie]);
+    expect(refreshRes.status).toBe(401);
+
+    // Login with new password succeeds
+    const newLoginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email, password: newPassword });
+    expect(newLoginRes.status).toBe(200);
+    expect(newLoginRes.body.accessToken).toBeTruthy();
+  });
 });
 
 function decrypt(enc) {

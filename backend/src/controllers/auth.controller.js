@@ -461,6 +461,9 @@ exports.resetPassword = asyncHandler(async (req, res) => {
   user.passwordResetToken = undefined;
   user.passwordResetExpires = undefined;
   user.refreshTokens = [];
+  user.activeSessions = [];
+  user.recentRotations = [];
+  user.passwordChangedAt = new Date();
   await user.save();
 
   logger.info('Password reset', { userId: user._id.toString() });

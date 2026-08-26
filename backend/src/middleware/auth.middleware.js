@@ -13,7 +13,14 @@ async function authMiddleware(req, res, next) {
     const user = await User.findById(decoded.sub).select('-passwordHash -refreshTokens -activeSessions -totpSecretEnc');
     if (!user) throw new ApiError(401, 'User not found');
     if (!user.isActive) throw new ApiError(403, 'Account suspended');
+    if (user.passwordChangedAt && decoded.iat) {
+      const changedSec = Math.floor(new Date(user.passwordChangedAt).getTime() / 1000);
+      if (decoded.iat < changedSec) {
+        throw new ApiError(401, 'Session invalidated by password reset');
+      }
+    }
     req.user = user;
+    req.authInfo = decoded;
     next();
   } catch (err) {
     if (err.name === 'JsonWebTokenError') {
