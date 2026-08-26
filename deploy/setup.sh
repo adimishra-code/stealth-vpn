@@ -28,6 +28,7 @@ WG_SERVER_PUBLIC_KEY="${WG_SERVER_PUBLIC_KEY:?WG_SERVER_PUBLIC_KEY is required}"
 WG_IP_POOL="${WG_IP_POOL:-10.8.0.0/24}"
 WG_LISTEN_PORT="${WG_LISTEN_PORT:-51820}"
 XRAY_API_PORT="${XRAY_API_PORT:-10085}"
+XRAY_PORT="${XRAY_PORT:-4430}"
 XRAY_SNI_DEST="${XRAY_SNI_DEST:-microsoft.com}"
 # CSP-05: when set, port 22 is reachable only from this CIDR (your-IP/32).
 MANAGEMENT_CIDR="${MANAGEMENT_CIDR:-}"
@@ -54,6 +55,17 @@ DEBIAN_FRONTEND=noninteractive apt install -y \
   python3 python3-pip python3-qrcode \
   curl wget unzip gnupg lsb-release ca-certificates \
   ufw fail2ban openssl
+
+# SEC-05: Ensure Nginx stream_ssl_preread is available to prevent port 443 collision
+log "Checking Nginx stream_ssl_preread module..."
+if command -v nginx >/dev/null 2>&1; then
+  if ! nginx -V 2>&1 | grep -q stream_ssl_preread; then
+    log "Installing libnginx-mod-stream for ssl_preread SNI demuxing..."
+    DEBIAN_FRONTEND=noninteractive apt install -y libnginx-mod-stream
+  fi
+else
+  DEBIAN_FRONTEND=noninteractive apt install -y nginx libnginx-mod-stream || true
+fi
 
 # qrcode python module is used by tooling/scripts; verify availability
 python3 -c "import qrcode, subprocess; print('Python qrcode OK')" || pip3 install qrcode
@@ -254,8 +266,8 @@ cat > /usr/local/etc/xray/config.json << XRAYEOF
   "api": { "tag": "api", "services": ["HandlerService", "StatsService"] },
   "inbounds": [
     {
-      "listen": "0.0.0.0",
-      "port": 443,
+      "listen": "127.0.0.1",
+      "port": ${XRAY_PORT},
       "protocol": "vless",
       "tag": "vless-in",
       "settings": { "clients": [], "decryption": "none", "fallbacks": [ { "dest": 80, "xver": 0 } ] },

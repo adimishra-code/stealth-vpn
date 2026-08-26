@@ -37,4 +37,26 @@ describe('Node Provisioning Script Security Verification (SEC-04, SEC-12)', () =
     expect(content).toContain('/usr/bin/wg-quick down wg0');
     expect(content).toContain('/sbin/ip link set dev wg0 down');
   });
+
+  test('SEC-05: Nginx stream multiplexer and setup.sh ssl_preread avoid port 443 collision', () => {
+    const streamConfPath = path.resolve(__dirname, '../../deploy/nginx-stream.conf');
+    const nginxConfPath = path.resolve(__dirname, '../../deploy/nginx.conf');
+    const streamContent = fs.readFileSync(streamConfPath, 'utf8');
+    const nginxContent = fs.readFileSync(nginxConfPath, 'utf8');
+    const setupContent = fs.readFileSync(setupScriptPath, 'utf8');
+
+    // stream config multiplexes on 443 with ssl_preread
+    expect(streamContent).toContain('ssl_preread on;');
+    expect(streamContent).toContain('server 127.0.0.1:8443;');
+    expect(streamContent).toContain('server 127.0.0.1:4430;');
+
+    // nginx HTTPS listens on 8443 loopback
+    expect(nginxContent).toContain('listen 127.0.0.1:8443 ssl http2;');
+
+    // setup.sh checks for stream_ssl_preread and configures Xray on 127.0.0.1:XRAY_PORT
+    expect(setupContent).toContain('stream_ssl_preread');
+    expect(setupContent).toContain('libnginx-mod-stream');
+    expect(setupContent).toContain('"listen": "127.0.0.1"');
+    expect(setupContent).toContain('XRAY_PORT');
+  });
 });
