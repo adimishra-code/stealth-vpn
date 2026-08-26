@@ -62,6 +62,14 @@ async function recordTotpFailure(user) {
       message: `Account locked after ${newAttempts} failed TOTP attempts`,
       details: { userId: user._id.toString() },
     });
+    audit({
+      adminId: user._id,
+      actorType: 'system',
+      action: 'auth.lockout',
+      targetType: 'user',
+      targetId: user._id.toString(),
+      details: { reason: 'totp_brute_force', attempts: newAttempts },
+    });
   }
 
   await User.updateOne({ _id: user._id }, update);
@@ -154,6 +162,14 @@ exports.login = asyncHandler(async (req, res) => {
     // Anti-enumeration + timing: burn the same bcrypt cost the real path
     // pays, so "no such user" and "wrong password" are indistinguishable.
     await bcrypt.hash(password, 12);
+    audit({
+      actorType: 'system',
+      action: 'auth.failed',
+      targetType: 'user',
+      targetId: 'unknown',
+      details: { email, reason: 'user_not_found' },
+      ip: req.ip,
+    });
     throw new ApiError(401, 'Invalid credentials');
   }
 
@@ -161,6 +177,15 @@ exports.login = asyncHandler(async (req, res) => {
   // state already requires knowing its password.
   const match = await user.comparePassword(password);
   if (!match) {
+    audit({
+      adminId: user._id,
+      actorType: 'user',
+      action: 'auth.failed',
+      targetType: 'user',
+      targetId: user._id.toString(),
+      details: { email: user.email, reason: 'invalid_password' },
+      ip: req.ip,
+    });
     throw new ApiError(401, 'Invalid credentials');
   }
 
@@ -174,6 +199,15 @@ exports.login = asyncHandler(async (req, res) => {
     const { totpCode } = req.body;
     if (!totpCode || !verifyTotpCode(user, totpCode)) {
       await recordTotpFailure(user);
+      audit({
+        adminId: user._id,
+        actorType: 'admin',
+        action: 'auth.totp-failed',
+        targetType: 'user',
+        targetId: user._id.toString(),
+        details: { email: user.email },
+        ip: req.ip,
+      });
       throw new ApiError(401, totpCode ? 'Invalid two-factor code' : 'Two-factor code required');
     }
     await recordTotpSuccess(user);
@@ -276,6 +310,14 @@ exports.refresh = asyncHandler(async (req, res) => {
       title: `Refresh token replay detected — userId ${decoded.sub}`,
       message: 'Possible session theft: all sessions revoked',
       details: { userId: decoded.sub },
+    });
+    audit({
+      actorType: 'system',
+      action: 'auth.token-replay',
+      targetType: 'user',
+      targetId: decoded.sub,
+      details: { jti: decoded.jti, reason: 'replayed_token_outside_grace' },
+      ip: req.ip,
     });
     throw new ApiError(401, 'Refresh token revoked');
   }

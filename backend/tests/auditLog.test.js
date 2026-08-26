@@ -35,4 +35,19 @@ describe('Audit log service (ADMIN-02)', () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(AuditLog.create).toHaveBeenCalledTimes(1);
   });
+
+  test('SEC-19: records failed auth, lockout, totp failure, and token replay events', async () => {
+    const events = [
+      { actorType: 'system', action: 'auth.failed', targetType: 'user', targetId: 'unknown', details: { email: 'bad@user.com' }, ip: '1.2.3.4' },
+      { adminId: 'u1', actorType: 'admin', action: 'auth.totp-failed', targetType: 'user', targetId: 'u1', details: { email: 'adm@vpn.com' }, ip: '1.2.3.4' },
+      { adminId: 'u1', actorType: 'system', action: 'auth.lockout', targetType: 'user', targetId: 'u1', details: { attempts: 5 } },
+      { actorType: 'system', action: 'auth.token-replay', targetType: 'user', targetId: 'u2', details: { jti: 'jti-123' }, ip: '1.2.3.4' },
+    ];
+
+    for (const evt of events) {
+      audit(evt);
+    }
+    await Promise.resolve();
+    expect(AuditLog.create).toHaveBeenCalledTimes(events.length);
+  });
 });
