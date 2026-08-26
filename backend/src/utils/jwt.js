@@ -33,8 +33,13 @@ const REFRESH_PUBLIC_PEM = env.JWT_REFRESH_PUBLIC_KEY
   ? derToPem(env.JWT_REFRESH_PUBLIC_KEY, 'public')
   : null;
 
-function signAccessToken(user) {
-  const payload = { sub: user._id.toString(), role: user.role, email: user.email };
+function signAccessToken(user, options = {}) {
+  const payload = {
+    sub: user._id.toString(),
+    role: user.role,
+    email: user.email,
+    ...(options.amr ? { amr: options.amr } : {}),
+  };
   if (ACCESS_PRIVATE_PEM) {
     return jwt.sign(payload, ACCESS_PRIVATE_PEM, {
       algorithm: 'ES256',

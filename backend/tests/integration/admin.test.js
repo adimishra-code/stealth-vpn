@@ -4,14 +4,15 @@
 const request = require('supertest');
 const { signAccessToken } = require('../../src/utils/jwt');
 
-const mockAdminUser = { _id: 'adm1', role: 'admin', email: 'admin@stealthvpn.com', isActive: true };
+const mockAdminUser = { _id: 'adm1', role: 'admin', email: 'admin@stealthvpn.com', isActive: true, totpEnabled: true };
+const mockAdminNoTotp = { _id: 'adm2', role: 'admin', email: 'nototp@stealthvpn.com', isActive: true, totpEnabled: false };
 const mockPlainUser = { _id: 'usr1', role: 'user', email: 'user@example.com', isActive: true };
 
 let mockDeviceStore = [];
 
 jest.mock('../../src/models/User', () => ({
   findById: jest.fn((id) => {
-    const user = [mockAdminUser, mockPlainUser].find((u) => u._id === id) || null;
+    const user = [mockAdminUser, mockAdminNoTotp, mockPlainUser].find((u) => u._id === id) || null;
     return user ? { select: () => user } : null;
   }),
   find: jest.fn(() => ({
@@ -33,7 +34,9 @@ jest.mock('../../src/models/ServerNode', () => ({
 
 const createApp = require('../../src/app');
 
-const adminToken = signAccessToken(mockAdminUser);
+const adminToken = signAccessToken(mockAdminUser, { amr: ['mfa'] });
+const adminTokenNoMfa = signAccessToken(mockAdminUser); // lacks amr: ['mfa']
+const adminNoTotpToken = signAccessToken(mockAdminNoTotp, { amr: ['mfa'] });
 const userToken = signAccessToken(mockPlainUser);
 
 describe('Admin API (integration)', () => {
@@ -58,6 +61,22 @@ describe('Admin API (integration)', () => {
       .set('Authorization', `Bearer ${userToken}`);
     expect(res.status).toBe(403);
     expect(res.body.error).toBe('Admin access required');
+  });
+
+  test('SEC-09: admin account without totpEnabled is rejected with 403', async () => {
+    const res = await request(app)
+      .get('/api/admin/users')
+      .set('Authorization', `Bearer ${adminNoTotpToken}`);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('Two-factor authentication is mandatory');
+  });
+
+  test('SEC-09: admin token without mfa claim is rejected with 403', async () => {
+    const res = await request(app)
+      .get('/api/admin/users')
+      .set('Authorization', `Bearer ${adminTokenNoMfa}`);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('Multi-factor authentication required');
   });
 
   test('admin can reach the pool-status endpoint (happy path)', async () => {

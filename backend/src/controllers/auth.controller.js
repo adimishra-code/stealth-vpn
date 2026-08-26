@@ -164,9 +164,12 @@ exports.login = asyncHandler(async (req, res) => {
     throw new ApiError(401, 'Invalid credentials');
   }
 
-  // ADMIN-01: TOTP challenge for admin accounts — the second factor sits
-  // between "password correct" and "session issued".
-  if (user.role === 'admin' && user.totpEnabled) {
+  // ADMIN-01 & SEC-09: TOTP challenge for admin accounts — mandatory 2FA
+  let mfaCompleted = false;
+  if (user.role === 'admin') {
+    if (!user.totpEnabled) {
+      throw new ApiError(403, 'Two-factor authentication is required for administrator accounts');
+    }
     await checkTotpLockout(user);
     const { totpCode } = req.body;
     if (!totpCode || !verifyTotpCode(user, totpCode)) {
@@ -174,6 +177,7 @@ exports.login = asyncHandler(async (req, res) => {
       throw new ApiError(401, totpCode ? 'Invalid two-factor code' : 'Two-factor code required');
     }
     await recordTotpSuccess(user);
+    mfaCompleted = true;
   }
 
   if (!user.emailVerified || !user.isActive) {
@@ -184,7 +188,7 @@ exports.login = asyncHandler(async (req, res) => {
     throw new ApiError(401, 'Invalid credentials');
   }
 
-  const accessToken = signAccessToken(user);
+  const accessToken = signAccessToken(user, { amr: mfaCompleted ? ['mfa'] : ['pwd'] });
   const refreshToken = signRefreshToken(user);
   const { jti } = verifyRefreshToken(refreshToken);
 
@@ -281,7 +285,8 @@ exports.refresh = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'Account suspended');
   }
 
-  const newAccessToken = signAccessToken(user);
+  const amr = (user.role === 'admin' && user.totpEnabled) ? ['mfa'] : ['pwd'];
+  const newAccessToken = signAccessToken(user, { amr });
   const newRefreshToken = signRefreshToken(user);
   const { jti: newJti } = verifyRefreshToken(newRefreshToken);
 
