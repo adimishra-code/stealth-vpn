@@ -78,4 +78,16 @@ describe('Boot-time SSH Private Key Security Check (verifySshKeySecurity)', () =
     statSpy.mockRestore();
     Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
   });
+
+  test('SEC-15: wrapSshError hides internal error details and paths from client message', () => {
+    const vpn = require('../src/services/vpn.service');
+    const serverNode = { name: 'frankfurt', ip: '195.201.55.2' };
+    const rawError = new Error('ENOENT: no such file or directory, open /home/stealth/.ssh/vpn_nodes_ed25519');
+
+    const wrapped = vpn.wrapSshError(serverNode, rawError);
+    expect(wrapped.statusCode).toBe(502);
+    expect(wrapped.message).toBe('VPN node frankfurt is temporarily unavailable');
+    expect(wrapped.message).not.toContain('/home/stealth/.ssh');
+    expect(wrapped.message).not.toContain('ENOENT');
+  });
 });

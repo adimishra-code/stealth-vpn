@@ -21,12 +21,17 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Normalizes node-ssh/net errors into ApiError(502) so callers distinguish
-// "node unreachable" from WG/Xray logic failures, and the error handler
-// sends a clean 502 instead of a 500 with an SSH stack trace.
+// SEC-15: Log raw node-ssh/filesystem errors internally, but return a generic
+// 502 message to callers to prevent leaking internal IPs, server key paths, or stack traces.
 function wrapSshError(serverNode, err) {
   if (err instanceof ApiError) return err;
-  return new ApiError(502, `Cannot reach VPN node ${serverNode.name}: ${err.message}`);
+  logger.error('SSH connection failed to VPN node', {
+    node: serverNode?.name,
+    ip: serverNode?.ip,
+    error: err.message,
+    stack: err.stack,
+  });
+  return new ApiError(502, `VPN node ${serverNode?.name || 'server'} is temporarily unavailable`);
 }
 
 function isTransient(err) {
