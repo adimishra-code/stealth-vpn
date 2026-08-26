@@ -28,13 +28,38 @@ function makeRedisStore(prefix) {
   };
 }
 
+// SEC-18: Composite IP+email prevents brute force across distributed IPs against a single account,
+// while protecting innocent users behind shared CGNAT IPs from collective lockout.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
   store: makeRedisStore('auth'),
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => `${ipKeyGenerator(req)}:${String((req.body && req.body.email) || '').toLowerCase()}`,
   message: { error: 'Too many login attempts. Try again in 15 minutes.' },
+});
+
+// SEC-18: Throttles session refresh requests to prevent token hammering
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  store: makeRedisStore('refresh'),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req),
+  message: { error: 'Too many session refresh requests. Try again later.' },
+});
+
+// SEC-18: Throttles password reset attempts to mitigate token brute-forcing
+const resetPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  store: makeRedisStore('resetpw'),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req),
+  message: { error: 'Too many password reset attempts. Try again in 1 hour.' },
 });
 
 const registerLimiter = rateLimit({
@@ -121,6 +146,8 @@ module.exports = {
   authLimiter,
   registerLimiter,
   forgotPasswordLimiter,
+  refreshLimiter,
+  resetPasswordLimiter,
   paymentLimiter,
   paymentVerifyLimiter,
   deviceLimiter,

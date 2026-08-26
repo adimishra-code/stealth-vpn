@@ -3,7 +3,13 @@ const router = express.Router();
 
 const { validate } = require('../middleware/validate.middleware');
 const { authMiddleware } = require('../middleware/auth.middleware');
-const { authLimiter, registerLimiter, forgotPasswordLimiter } = require('../middleware/rateLimit.middleware');
+const {
+  authLimiter,
+  registerLimiter,
+  forgotPasswordLimiter,
+  refreshLimiter,
+  resetPasswordLimiter,
+} = require('../middleware/rateLimit.middleware');
 const {
   registerSchema,
   loginSchema,
@@ -19,7 +25,7 @@ const accountDeletionController = require('../controllers/accountDeletion.contro
 router.post('/register', registerLimiter, validate(registerSchema), authController.register);
 router.post('/verify', validate(verifyEmailSchema), authController.verifyEmail);
 router.post('/login', authLimiter, validate(loginSchema), authController.login);
-router.post('/refresh', authController.refresh);
+router.post('/refresh', refreshLimiter, authController.refresh);
 router.post('/logout', authController.logout);
 router.delete('/sessions', authMiddleware, authController.logoutAll);
 // ADMIN-01: TOTP enrollment (setup regenerates the secret; verify flips the
@@ -32,7 +38,7 @@ router.post('/forgot-password', forgotPasswordLimiter, validate(forgotPasswordSc
 // Anti-enumeration handled in the controller (same generic response for
 // "email not registered" and "email already verified").
 router.post('/resend-verify', registerLimiter, validate(forgotPasswordSchema), authController.resendVerify);
-router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
+router.post('/reset-password', resetPasswordLimiter, validate(resetPasswordSchema), authController.resetPassword);
 router.get('/me', authMiddleware, authController.me);
 // Right to be forgotten: revokes everything now, hard-deletes after the
 // grace period via the purge cron.
