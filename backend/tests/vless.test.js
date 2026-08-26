@@ -90,4 +90,31 @@ describe('buildSingBoxConfig and buildClashConfig', () => {
     expect(clash['reality-opts']['public-key']).toBe('REALITY_KEY_123');
     expect(clash['reality-opts']['short-id']).toBe('short123');
   });
+
+  test('SEC-06: respects per-node realitySniDest over global default in URI and configs', () => {
+    const hetznerNode = { ...serverNode, realitySniDest: 'mirror.hetzner.de' };
+    const uri = buildVlessUri({
+      serverNode: hetznerNode,
+      uuid: '3f2b9c1e-8a5d-4b7f-9c2e-1d0a6b8f4e3d',
+      deviceName: 'HetznerBox',
+      nodeKeys: { realityPublicKey: 'K', realityShortId: 'S' },
+    });
+    expect(uri).toContain('sni=mirror.hetzner.de');
+
+    const singbox = buildSingBoxConfig({
+      serverNode: hetznerNode,
+      uuid: '3f2b9c1e-8a5d-4b7f-9c2e-1d0a6b8f4e3d',
+      deviceName: 'HetznerBox',
+      nodeKeys: { realityPublicKey: 'K', realityShortId: 'S' },
+    });
+    expect(singbox.tls.server_name).toBe('mirror.hetzner.de');
+
+    const clash = buildClashConfig({
+      serverNode,
+      uuid: '3f2b9c1e-8a5d-4b7f-9c2e-1d0a6b8f4e3d',
+      deviceName: 'HetznerBox',
+      nodeKeys: { realityPublicKey: 'K', realityShortId: 'S', realitySniDest: 'speedtest.hetzner.de' },
+    });
+    expect(clash.servername).toBe('speedtest.hetzner.de');
+  });
 });

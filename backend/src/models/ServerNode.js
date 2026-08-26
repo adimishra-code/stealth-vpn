@@ -55,6 +55,7 @@ const ServerNodeSchema = new mongoose.Schema({
   },
   realityPublicKey: String,
   realityShortId: String,
+  realitySniDest: String,
   createdAt: {
     type: Date,
     default: Date.now,

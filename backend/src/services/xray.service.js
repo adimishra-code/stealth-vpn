@@ -19,12 +19,13 @@ function emailTagFor(uuid) {
 // Stealth-mode clients import this URI into any Xray/V2Ray client; it is the
 // client-side counterpart of the server's Reality inbound. nodeKeys are the
 // per-node Reality public key + shortId (from NODE_<NAME>_REALITY_* env vars).
-function buildVlessUri({ serverNode, uuid, deviceName, nodeKeys, sni = env.XRAY_SNI_DEST, flow = FLOW_VISION }) {
+function buildVlessUri({ serverNode, uuid, deviceName, nodeKeys, sni, flow = FLOW_VISION }) {
+  const effectiveSni = sni || serverNode?.realitySniDest || nodeKeys?.realitySniDest || env.XRAY_SNI_DEST;
   const query = [
     'encryption=none',
     flow ? `flow=${flow}` : null,
     'security=reality',
-    `sni=${sni}`,
+    `sni=${effectiveSni}`,
     'fp=chrome',
     nodeKeys?.realityPublicKey ? `pbk=${nodeKeys.realityPublicKey}` : null,
     nodeKeys?.realityShortId ? `sid=${nodeKeys.realityShortId}` : null,
@@ -83,7 +84,8 @@ async function fetchStatsForNode(serverNode) {
   return stdout;
 }
 
-function buildSingBoxConfig({ serverNode, uuid, deviceName, nodeKeys, sni = env.XRAY_SNI_DEST }) {
+function buildSingBoxConfig({ serverNode, uuid, deviceName, nodeKeys, sni }) {
+  const effectiveSni = sni || serverNode?.realitySniDest || nodeKeys?.realitySniDest || env.XRAY_SNI_DEST;
   const tag = `StealthVPN-${deviceName || serverNode.name || 'node'}`;
   return {
     type: 'vless',
@@ -94,7 +96,7 @@ function buildSingBoxConfig({ serverNode, uuid, deviceName, nodeKeys, sni = env.
     flow: FLOW_VISION,
     tls: {
       enabled: true,
-      server_name: sni,
+      server_name: effectiveSni,
       utls: {
         enabled: true,
         fingerprint: 'chrome',
@@ -109,7 +111,8 @@ function buildSingBoxConfig({ serverNode, uuid, deviceName, nodeKeys, sni = env.
   };
 }
 
-function buildClashConfig({ serverNode, uuid, deviceName, nodeKeys, sni = env.XRAY_SNI_DEST }) {
+function buildClashConfig({ serverNode, uuid, deviceName, nodeKeys, sni }) {
+  const effectiveSni = sni || serverNode?.realitySniDest || nodeKeys?.realitySniDest || env.XRAY_SNI_DEST;
   const name = `StealthVPN-${deviceName || serverNode.name || 'node'}`;
   return {
     name,
@@ -121,7 +124,7 @@ function buildClashConfig({ serverNode, uuid, deviceName, nodeKeys, sni = env.XR
     tls: true,
     udp: true,
     flow: FLOW_VISION,
-    servername: sni,
+    servername: effectiveSni,
     'reality-opts': {
       'public-key': nodeKeys?.realityPublicKey || '',
       'short-id': nodeKeys?.realityShortId || '',

@@ -81,6 +81,7 @@ function nodeRealityKeys(serverNodeName) {
   return {
     realityPublicKey: env[`${prefix}_REALITY_PUBLIC_KEY`] || null,
     realityShortId: env[`${prefix}_REALITY_SHORT_ID`] || null,
+    realitySniDest: env[`${prefix}_REALITY_SNI_DEST`] || null,
   };
 }
 
