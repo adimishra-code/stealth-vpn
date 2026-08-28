@@ -9,6 +9,8 @@ const {
   verifyPaymentSchema,
   stripeSessionSchema,
   stripeConfirmSchema,
+  downgradePlanSchema,
+  cancelSubscriptionSchema,
 } = require('../middleware/schemas');
 const paymentController = require('../controllers/payment.controller');
 
@@ -22,6 +24,10 @@ router.post('/verify', paymentVerifyLimiter, validate(verifyPaymentSchema), paym
 // Stripe (international)
 router.post('/stripe/session', paymentLimiter, validate(stripeSessionSchema), paymentController.stripeSession);
 router.post('/stripe/confirm', validate(stripeConfirmSchema), paymentController.stripeConfirm);
+
+// Subscription management
+router.post('/downgrade', paymentLimiter, validate(downgradePlanSchema), paymentController.downgradePlan);
+router.post('/cancel-subscription', paymentLimiter, validate(cancelSubscriptionSchema), paymentController.cancelSubscription);
 
 // Invoices
 router.get('/invoices', paymentController.listInvoices);

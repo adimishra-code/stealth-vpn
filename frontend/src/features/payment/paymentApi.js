@@ -16,6 +16,14 @@ export const paymentApi = api.injectEndpoints({
       query: (body) => ({ url: '/payment/stripe/confirm', method: 'POST', body }),
       invalidatesTags: ['Devices', 'Invoices', 'Users'],
     }),
+    downgradePlan: build.mutation({
+      query: (body) => ({ url: '/payment/downgrade', method: 'POST', body }),
+      invalidatesTags: ['Devices', 'Users'],
+    }),
+    cancelSubscription: build.mutation({
+      query: (body = {}) => ({ url: '/payment/cancel-subscription', method: 'POST', body }),
+      invalidatesTags: ['Devices', 'Invoices', 'Users'],
+    }),
     listInvoices: build.query({
       query: () => '/payment/invoices',
       providesTags: ['Invoices'],
@@ -28,5 +36,7 @@ export const {
   useVerifyPaymentMutation,
   useCreateStripeSessionMutation,
   useConfirmStripeMutation,
+  useDowngradePlanMutation,
+  useCancelSubscriptionMutation,
   useListInvoicesQuery,
 } = paymentApi

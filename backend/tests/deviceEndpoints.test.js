@@ -119,6 +119,18 @@ describe('Device Endpoints (VLESS & Multi-format downloads)', () => {
     expect(parsed.proxies[0].type).toBe('vless');
   });
 
+  test('GET /api/devices/:id/config?format=clash-yaml returns complete clash YAML profile', async () => {
+    const res = await request(app)
+      .get('/api/devices/d100/config?format=clash-yaml')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toContain('clash.yaml');
+    expect(res.text).toContain('port: 7890');
+    expect(res.text).toContain('proxies:');
+    expect(res.text).toContain('proxy-groups:');
+  });
+
   test('SEC-16: POST /api/devices rejects script injection and CRLF in deviceName', async () => {
     const payloads = [
       '<script>alert(1)</script>',

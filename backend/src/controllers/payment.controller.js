@@ -316,3 +316,95 @@ exports.webhook = asyncHandler(async (req, res) => {
   });
   return res.status(400).json({ error: 'No valid signature' });
 });
+
+exports.downgradePlan = asyncHandler(async (req, res) => {
+  const { targetPlan } = req.body;
+  const user = req.user;
+
+  if (user.plan === targetPlan) {
+    throw new ApiError(400, `Account is already on ${targetPlan.toUpperCase()} plan`);
+  }
+
+  const previousPlan = user.plan;
+
+  // Reconcile devices (LRU revoke if excess devices exist, apply/remove throttling)
+  await webhookService.reconcileDevicesForPlan(user._id, targetPlan);
+
+  user.plan = targetPlan;
+  if (targetPlan === 'free') {
+    user.planExpiresAt = undefined;
+  }
+  await user.save();
+
+  audit({
+    adminId: user._id,
+    actorType: 'user',
+    action: 'plan.downgrade',
+    targetType: 'user',
+    targetId: user._id.toString(),
+    details: { previousPlan, newPlan: targetPlan },
+    ip: req.ip,
+  });
+
+  logger.info('User downgraded plan', {
+    userId: user._id.toString(),
+    previousPlan,
+    newPlan: targetPlan,
+  });
+
+  res.json({
+    message: `Plan changed to ${targetPlan.toUpperCase()}`,
+    user: {
+      id: user._id,
+      email: user.email,
+      plan: user.plan,
+      planExpiresAt: user.planExpiresAt,
+      role: user.role,
+      emailVerified: user.emailVerified,
+    },
+  });
+});
+
+exports.cancelSubscription = asyncHandler(async (req, res) => {
+  const user = req.user;
+  const { reason = 'User requested cancellation' } = req.body || {};
+
+  // Cancel recurring gateway subscriptions
+  const cancelResults = await paymentService.cancelCustomerSubscriptions(user);
+
+  // Downgrade to free tier and revoke excess devices
+  const previousPlan = user.plan;
+  await webhookService.reconcileDevicesForPlan(user._id, 'free');
+
+  user.plan = 'free';
+  user.planExpiresAt = undefined;
+  await user.save();
+
+  audit({
+    adminId: user._id,
+    actorType: 'user',
+    action: 'subscription.cancel',
+    targetType: 'user',
+    targetId: user._id.toString(),
+    details: { previousPlan, reason, gatewayResults: cancelResults },
+    ip: req.ip,
+  });
+
+  logger.info('Subscription cancelled by user', {
+    userId: user._id.toString(),
+    previousPlan,
+    reason,
+  });
+
+  res.json({
+    message: 'Subscription cancelled successfully. Account returned to Free tier.',
+    user: {
+      id: user._id,
+      email: user.email,
+      plan: user.plan,
+      planExpiresAt: null,
+      role: user.role,
+      emailVerified: user.emailVerified,
+    },
+  });
+});

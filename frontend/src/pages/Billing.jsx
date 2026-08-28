@@ -1,8 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import { selectUser, setUser } from '../features/auth/authSlice'
-import { useListInvoicesQuery, useCreateOrderMutation, useCreateStripeSessionMutation, useVerifyPaymentMutation, useConfirmStripeMutation } from '../features/payment/paymentApi'
-import { Check, Loader2 } from 'lucide-react'
+import {
+  useListInvoicesQuery,
+  useCreateOrderMutation,
+  useCreateStripeSessionMutation,
+  useVerifyPaymentMutation,
+  useConfirmStripeMutation,
+  useDowngradePlanMutation,
+  useCancelSubscriptionMutation,
+} from '../features/payment/paymentApi'
+import { Check, Loader2, AlertTriangle, ShieldAlert, ArrowDownCircle, XCircle } from 'lucide-react'
 import { loadRazorpay } from '../utils/razorpay'
 import { toast } from '../lib/toast'
 import ConfigDelivery from '../components/ConfigDelivery'
@@ -29,13 +37,21 @@ export default function Billing() {
   const [createStripeSession] = useCreateStripeSessionMutation()
   const [verifyPayment, { isLoading: verifying }] = useVerifyPaymentMutation()
   const [confirmStripe, { isLoading: confirmingStripe }] = useConfirmStripeMutation()
+  const [downgradePlan, { isLoading: downgrading }] = useDowngradePlanMutation()
+  const [cancelSubscription, { isLoading: cancelling }] = useCancelSubscriptionMutation()
+
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(null)
   const [result, setResult] = useState(null)
   const [pendingPlan, setPendingPlan] = useState(null)
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [showDowngradeModal, setShowDowngradeModal] = useState(false)
+  const [selectedDowngradePlan, setSelectedDowngradePlan] = useState('basic')
+  const [cancelReason, setCancelReason] = useState('')
   const stripeProcessedRef = useRef(false)
 
   const invoices = invoicesData?.invoices || []
+  const isPaidUser = user?.plan && user.plan !== 'free'
 
   const handleRazorpaySuccess = async (plan, paymentResponse) => {
     setPendingPlan(plan)
@@ -141,18 +157,82 @@ export default function Billing() {
     }
   }
 
+  const handleConfirmDowngrade = async () => {
+    try {
+      const res = await downgradePlan({ targetPlan: selectedDowngradePlan }).unwrap()
+      dispatch(setUser({ ...user, ...res.user }))
+      toast.success(res.message || `Plan changed to ${selectedDowngradePlan.toUpperCase()}`)
+      setShowDowngradeModal(false)
+      refetch()
+    } catch (err) {
+      toast.error(err?.data?.error || 'Failed to downgrade plan')
+    }
+  }
+
+  const handleConfirmCancel = async () => {
+    try {
+      const res = await cancelSubscription({ reason: cancelReason }).unwrap()
+      dispatch(setUser({ ...user, ...res.user }))
+      toast.success(res.message || 'Subscription cancelled successfully')
+      setShowCancelModal(false)
+      refetch()
+    } catch (err) {
+      toast.error(err?.data?.error || 'Failed to cancel subscription')
+    }
+  }
+
   const isCurrent = (name) => user?.plan === name
 
   return (
     <div className="space-y-8">
       <div className="animate-fade-up">
-        <h1 className="font-display text-2xl font-semibold text-ink tracking-tight">Billing</h1>
+        <h1 className="font-display text-2xl font-semibold text-ink tracking-tight">Billing & Plans</h1>
         <p className="text-sm text-muted mt-1">
-          Current plan: <span className="font-mono font-semibold uppercase text-accent-400">{user?.plan}</span>
-          {user?.planExpiresAt && (
-            <span> · expires <span className="font-mono text-ink">{new Date(user.planExpiresAt).toLocaleDateString()}</span></span>
-          )}
+          Manage your subscription, change plan tiers, or review payment invoices.
         </p>
+      </div>
+
+      {/* Active Subscription Summary & Self-Service Management */}
+      <div className="card border-line-strong p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono text-faint uppercase tracking-wider">Current Tier:</span>
+            <span className="font-mono font-bold uppercase text-accent-400 text-base px-2.5 py-0.5 rounded-sm bg-accent-400/10 border border-accent-400/30">
+              {user?.plan || 'FREE'}
+            </span>
+          </div>
+          <p className="text-xs text-muted mt-2">
+            {user?.planExpiresAt ? (
+              <span>Active through <strong className="text-ink font-mono">{new Date(user.planExpiresAt).toLocaleDateString()}</strong></span>
+            ) : isPaidUser ? (
+              <span>Recurring monthly subscription</span>
+            ) : (
+              <span>Free tier — limited bandwidth and slots. Upgrade to unlock full speed and multiple devices.</span>
+            )}
+          </p>
+        </div>
+
+        {isPaidUser && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => {
+                setSelectedDowngradePlan(user?.plan === 'team' ? 'pro' : 'basic')
+                setShowDowngradeModal(true)
+              }}
+              className="btn-secondary text-xs flex items-center gap-1.5"
+            >
+              <ArrowDownCircle size={14} className="text-muted" />
+              Change / Downgrade
+            </button>
+            <button
+              onClick={() => setShowCancelModal(true)}
+              className="btn-secondary !border-danger/40 !text-danger hover:!bg-danger/10 text-xs flex items-center gap-1.5"
+            >
+              <XCircle size={14} />
+              Cancel subscription
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -161,6 +241,7 @@ export default function Billing() {
         </div>
       )}
 
+      {/* Plan Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl items-start">
         {plans.map((p, i) => (
           <div
@@ -223,6 +304,7 @@ export default function Billing() {
         ))}
       </div>
 
+      {/* Invoice History */}
       <div className="card">
         <h2 className="font-display text-lg font-semibold text-ink mb-4">Invoice history</h2>
         {invoicesLoading ? (
@@ -268,6 +350,109 @@ export default function Billing() {
           </div>
         )}
       </div>
+
+      {/* Downgrade Modal */}
+      {showDowngradeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-[4px] p-4 animate-fade-in">
+          <div className="bg-surface border border-line-strong rounded-2xl shadow-card max-w-md w-full p-6 space-y-5">
+            <div className="flex items-center gap-3 text-warn">
+              <AlertTriangle size={24} />
+              <h3 className="font-display font-semibold text-ink text-lg">Change / Downgrade Plan</h3>
+            </div>
+
+            <p className="text-xs text-muted leading-relaxed">
+              Selecting a lower plan tier will adjust your allowed device slots. Any excess devices above the new plan tier limit will be automatically deprovisioned based on least-recently-used (LRU) activity.
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-mono text-faint uppercase">Select target plan</label>
+              <div className="grid grid-cols-2 gap-2">
+                {['basic', 'free'].map((tier) => (
+                  <button
+                    key={tier}
+                    type="button"
+                    onClick={() => setSelectedDowngradePlan(tier)}
+                    className={`p-3 rounded-lg border text-left transition-all ${
+                      selectedDowngradePlan === tier
+                        ? 'border-accent-400 bg-accent-400/10 text-ink font-semibold'
+                        : 'border-line bg-void text-muted hover:border-line-strong'
+                    }`}
+                  >
+                    <div className="capitalize text-sm font-bold">{tier}</div>
+                    <div className="text-2xs text-faint mt-1 font-mono">
+                      {tier === 'basic' ? '1 device · 500GB' : '0 paid slots'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDowngradeModal(false)}
+                className="btn-secondary text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDowngrade}
+                disabled={downgrading}
+                className="btn-primary text-xs flex items-center gap-1.5"
+              >
+                {downgrading ? <Loader2 size={13} className="animate-spin" /> : 'Confirm Change'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Subscription Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-[4px] p-4 animate-fade-in">
+          <div className="bg-surface border border-danger/40 rounded-2xl shadow-card max-w-md w-full p-6 space-y-5">
+            <div className="flex items-center gap-3 text-danger">
+              <ShieldAlert size={24} />
+              <h3 className="font-display font-semibold text-ink text-lg">Cancel VPN Subscription</h3>
+            </div>
+
+            <p className="text-xs text-muted leading-relaxed">
+              Are you sure you want to cancel your active subscription? Your recurring billing will be stopped at the payment gateway, and your account will immediately revert to the <strong>Free tier</strong>. Active VPN device keys exceeding Free limit will be deprovisioned.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-mono text-faint">Reason for cancellation (optional):</label>
+              <input
+                type="text"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Switched network provider"
+                className="input text-xs w-full"
+                maxLength={200}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCancelModal(false)}
+                className="btn-secondary text-xs"
+              >
+                Keep My Plan
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancel}
+                disabled={cancelling}
+                className="btn-secondary !border-danger !bg-danger/20 !text-danger text-xs flex items-center gap-1.5"
+              >
+                {cancelling ? <Loader2 size={13} className="animate-spin" /> : 'Yes, Cancel Subscription'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(verifying || confirmingStripe) && pendingPlan && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[4px] p-4 animate-fade-in">

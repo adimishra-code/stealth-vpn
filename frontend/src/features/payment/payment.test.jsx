@@ -7,11 +7,13 @@ import userEvent from '@testing-library/user-event'
 import Billing from '../../pages/Billing'
 import { renderWithProviders } from '../../test/test-utils'
 
-const { createOrder, createStripeSession, verifyPayment, confirmStripe } = vi.hoisted(() => ({
+const { createOrder, createStripeSession, verifyPayment, confirmStripe, downgradePlan, cancelSubscription } = vi.hoisted(() => ({
   createOrder: vi.fn(),
   createStripeSession: vi.fn(),
   verifyPayment: vi.fn(),
   confirmStripe: vi.fn(),
+  downgradePlan: vi.fn(),
+  cancelSubscription: vi.fn(),
 }))
 
 vi.mock('../../features/payment/paymentApi', () => ({
@@ -25,6 +27,8 @@ vi.mock('../../features/payment/paymentApi', () => ({
   useCreateStripeSessionMutation: () => [createStripeSession, { isLoading: false }],
   useVerifyPaymentMutation: () => [verifyPayment, { isLoading: false }],
   useConfirmStripeMutation: () => [confirmStripe, { isLoading: false }],
+  useDowngradePlanMutation: () => [downgradePlan, { isLoading: false }],
+  useCancelSubscriptionMutation: () => [cancelSubscription, { isLoading: false }],
 }))
 
 vi.mock('../../utils/razorpay', () => ({
@@ -131,4 +135,43 @@ describe('Billing page (PAY-03)', () => {
       expect(assignSpy).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay_test')
     )
   })
+
+  it('opens downgrade modal and submits plan downgrade', async () => {
+    downgradePlan.mockImplementation(() => ({
+      unwrap: async () => ({ message: 'Plan changed to BASIC', user: { plan: 'basic' } }),
+    }))
+    const user = userEvent.setup()
+    renderBilling()
+
+    const changeBtn = screen.getByRole('button', { name: /Change \/ Downgrade/i })
+    await user.click(changeBtn)
+
+    expect(screen.getByText('Change / Downgrade Plan')).toBeInTheDocument()
+    const confirmBtn = screen.getByRole('button', { name: /Confirm Change/i })
+    await user.click(confirmBtn)
+
+    await waitFor(() =>
+      expect(downgradePlan).toHaveBeenCalledWith({ targetPlan: 'basic' })
+    )
+  })
+
+  it('opens cancel modal and submits subscription cancellation', async () => {
+    cancelSubscription.mockImplementation(() => ({
+      unwrap: async () => ({ message: 'Subscription cancelled', user: { plan: 'free' } }),
+    }))
+    const user = userEvent.setup()
+    renderBilling()
+
+    const cancelBtn = screen.getByRole('button', { name: /Cancel subscription/i })
+    await user.click(cancelBtn)
+
+    expect(screen.getByText('Cancel VPN Subscription')).toBeInTheDocument()
+    const confirmBtn = screen.getByRole('button', { name: /Yes, Cancel Subscription/i })
+    await user.click(confirmBtn)
+
+    await waitFor(() =>
+      expect(cancelSubscription).toHaveBeenCalled()
+    )
+  })
 })
+

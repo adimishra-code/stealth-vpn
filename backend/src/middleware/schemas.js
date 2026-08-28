@@ -104,6 +104,14 @@ const stripeConfirmSchema = z.object({
   session_id: z.string().min(1),
 });
 
+const downgradePlanSchema = z.object({
+  targetPlan: z.enum(['free', 'basic', 'pro']),
+});
+
+const cancelSubscriptionSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
 // ── Admin schemas ─────────────────────────────────────────────────────────────
 const adminUpdateUserSchema = z.object({
   plan: z.enum(['free', 'basic', 'pro', 'team']).optional(),
@@ -155,6 +163,8 @@ module.exports = {
   verifyPaymentSchema,
   stripeSessionSchema,
   stripeConfirmSchema,
+  downgradePlanSchema,
+  cancelSubscriptionSchema,
   adminUpdateUserSchema,
   adminBanUserSchema,
   adminExtendDeviceSchema,

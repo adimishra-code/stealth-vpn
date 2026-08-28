@@ -122,7 +122,7 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
                 (TCP 443, cloaked as TLS 1.3 to a major CDN). WireGuard and Xray run in
                 parallel — switch between them from the dashboard.
               </p>
-              <div className="flex items-stretch gap-2 mb-5">
+              <div className="flex items-stretch gap-2 mb-4">
                 <code className="flex-1 font-mono text-[11px] text-accent-300 bg-void/70 border border-accent-400/30 rounded-lg px-3 py-2.5 break-all">
                   {vlessUri}
                 </code>
@@ -139,6 +139,24 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
                   <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md bg-raised border border-line px-2 py-1 font-sans text-[11px] text-ink shadow-tooltip opacity-0 translate-x-1 transition-all duration-fast group-hover:opacity-100 group-hover:translate-x-0">
                     {vlessCopied ? 'Copied' : 'Copy URI'}
                   </span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 mb-5">
+                <button
+                  onClick={() => {
+                    const blob = new Blob([vlessUri], { type: 'text/plain' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `stealth-${deviceName || 'device'}-vless.txt`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                  className="btn-secondary !py-1.5 !px-3 text-xs flex items-center gap-1.5"
+                >
+                  <Download size={13} />
+                  Download VLESS URI (.txt)
                 </button>
               </div>
               <h3 className="font-semibold text-ink mb-3">Setup instructions</h3>

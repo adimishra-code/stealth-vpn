@@ -36,14 +36,16 @@ export default function DeviceCard({ device }) {
   const [downloadConfigMutation] = useDownloadConfigMutation()
   const [revoke, { isLoading: revoking }] = useRevokeDeviceMutation()
 
-  const downloadConfig = async (_format = 'wireguard') => {
-    const result = await downloadConfigMutation(device.id)
+  const downloadConfig = async (format = 'wireguard') => {
+    const result = await downloadConfigMutation({ id: device.id, format })
     if (result.data) {
-      const blob = new Blob([result.data], { type: 'text/plain' })
+      const ext = format === 'singbox' ? 'json' : (format === 'clash' || format === 'clash-yaml') ? 'yaml' : 'conf'
+      const mime = format === 'singbox' ? 'application/json' : format.includes('clash') ? 'text/yaml' : 'text/plain'
+      const blob = new Blob([result.data], { type: mime })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `stealth-${device.deviceName || 'device'}.conf`
+      a.download = `stealth-${device.deviceName || 'device'}-${format}.${ext}`
       a.click()
       URL.revokeObjectURL(url)
     }
@@ -146,10 +148,6 @@ export default function DeviceCard({ device }) {
 
         {device.isActive && (
           <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
-            <button onClick={() => downloadConfig('wireguard')} className="btn-secondary !py-1.5 !px-3 text-xs" title="Download WireGuard .conf">
-              <Download size={13} />
-              .conf
-            </button>
             <button
               onClick={() => {
                 setShowQr(!showQr)
@@ -158,10 +156,10 @@ export default function DeviceCard({ device }) {
                   fetchVless()
                 }
               }}
-              className="btn-secondary !py-1.5 !px-3 text-xs"
+              className="btn-primary !py-1.5 !px-3 text-xs flex items-center gap-1.5"
             >
               {showQr ? <X size={13} /> : <QrCode size={13} />}
-              {showQr ? 'Close' : 'QR / Key'}
+              {showQr ? 'Hide Config' : 'Export & QR'}
             </button>
             <button
               onClick={handleRevoke}
@@ -248,27 +246,59 @@ export default function DeviceCard({ device }) {
           </div>
 
           {qrTab === 'stealth' && (
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-4">
               {vlessLoading ? (
                 <div className="h-[180px] w-[180px] skeleton" />
-              ) : vlessData?.qrDataUrl ? (
+              ) : vlessData?.vlessUri ? (
                 <>
                   <div className="bg-white rounded-lg p-3">
-                    <QRCodeSVG value={vlessData.qrDataUrl} size={180} />
+                    <QRCodeSVG value={vlessData.qrDataUrl || vlessData.vlessUri} size={180} />
                   </div>
+
                   <div className="w-full flex items-center gap-2 max-w-md">
                     <code className="flex-1 font-mono text-[11px] text-accent-300 bg-surface border border-line rounded-lg px-2.5 py-2 truncate">
                       {vlessData.vlessUri}
                     </code>
                     <button
                       onClick={handleCopyVless}
-                      className="btn-secondary !py-2 !px-3 text-xs shrink-0"
+                      className="btn-secondary !py-2 !px-3 text-xs shrink-0 flex items-center gap-1"
                     >
                       {copiedVless ? <Check size={13} className="text-accent-400" /> : <Copy size={13} />}
                       {copiedVless ? 'Copied' : 'Copy'}
                     </button>
                   </div>
-                  <p className="text-[11px] text-faint text-center">Scan with v2rayN / V2RayNG / Shadowrocket for cloaked HTTPS tunnel.</p>
+
+                  {/* Multi-Format Export Buttons */}
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-2 border-t border-line/60 w-full">
+                    <button
+                      onClick={() => downloadConfig('singbox')}
+                      className="btn-secondary text-xs !py-1.5 !px-2.5 flex items-center gap-1.5"
+                      title="Download Sing-box JSON profile"
+                    >
+                      <Download size={12} />
+                      Sing-box (.json)
+                    </button>
+                    <button
+                      onClick={() => downloadConfig('clash-yaml')}
+                      className="btn-secondary text-xs !py-1.5 !px-2.5 flex items-center gap-1.5"
+                      title="Download Clash Meta YAML profile"
+                    >
+                      <Download size={12} />
+                      Clash Meta (.yaml)
+                    </button>
+                    <button
+                      onClick={() => downloadConfig('vless')}
+                      className="btn-secondary text-xs !py-1.5 !px-2.5 flex items-center gap-1.5"
+                      title="Download raw VLESS text"
+                    >
+                      <Download size={12} />
+                      VLESS (.txt)
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-faint text-center">
+                    Compatible with v2rayN, V2RayNG, Shadowrocket, Sing-Box, and Clash Verge.
+                  </p>
                 </>
               ) : (
                 <p className="text-xs text-warn">Stealth Reality credentials unavailable.</p>
@@ -277,7 +307,7 @@ export default function DeviceCard({ device }) {
           )}
 
           {qrTab === 'wireguard' && (
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-4">
               {qrLoading ? (
                 <div className="h-[180px] w-[180px] skeleton" />
               ) : qrData?.qrDataUrl ? (
@@ -285,7 +315,17 @@ export default function DeviceCard({ device }) {
                   <div className="bg-white rounded-lg p-3">
                     <QRCodeSVG value={qrData.qrDataUrl} size={180} />
                   </div>
-                  <p className="text-[11px] text-faint">Scan with the official WireGuard app on iOS / Android.</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => downloadConfig('wireguard')}
+                      className="btn-primary text-xs !py-1.5 !px-3 flex items-center gap-1.5"
+                      title="Download WireGuard .conf profile"
+                    >
+                      <Download size={13} />
+                      Download WireGuard (.conf)
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-faint text-center">Scan with the official WireGuard app on iOS / Android or import into desktop client.</p>
                 </>
               ) : (
                 <p className="text-xs text-warn">QR code unavailable.</p>

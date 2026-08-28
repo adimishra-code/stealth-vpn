@@ -15,7 +15,16 @@ export const devicesApi = api.injectEndpoints({
       invalidatesTags: ['Devices'],
     }),
     downloadConfig: build.mutation({
-      query: (id) => ({ url: `/devices/${id}/config`, method: 'POST', responseHandler: 'text' }),
+      query: (arg) => {
+        const id = typeof arg === 'object' ? arg.id : arg
+        const format = typeof arg === 'object' && arg.format ? arg.format : 'wireguard'
+        return {
+          url: `/devices/${id}/config?format=${format}`,
+          method: 'POST',
+          body: { format },
+          responseHandler: 'text',
+        }
+      },
     }),
     getQr: build.query({
       query: (id) => ({ url: `/devices/${id}/qr` }),

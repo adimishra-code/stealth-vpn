@@ -133,6 +133,56 @@ function buildClashConfig({ serverNode, uuid, deviceName, nodeKeys, sni }) {
   };
 }
 
+function buildClashMetaYaml({ serverNode, uuid, deviceName, nodeKeys, sni }) {
+  const effectiveSni = sni || serverNode?.realitySniDest || nodeKeys?.realitySniDest || env.XRAY_SNI_DEST;
+  const proxyName = `StealthVPN-${deviceName || serverNode.name || 'node'}`;
+  const pubKey = nodeKeys?.realityPublicKey || '';
+  const shortId = nodeKeys?.realityShortId || '';
+
+  return `# StealthVPN Clash Meta Profile
+port: 7890
+socks-port: 7891
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  enhanced-mode: fake-ip
+  nameserver:
+    - 1.1.1.1
+    - 8.8.8.8
+
+proxies:
+  - name: "${proxyName}"
+    type: vless
+    server: ${serverNode.ip}
+    port: ${serverNode.xrayPort || 443}
+    uuid: ${uuid}
+    cipher: none
+    tls: true
+    udp: true
+    flow: ${FLOW_VISION}
+    servername: ${effectiveSni}
+    reality-opts:
+      public-key: ${pubKey}
+      short-id: ${shortId}
+    client-fingerprint: chrome
+
+proxy-groups:
+  - name: "PROXIES"
+    type: select
+    proxies:
+      - "${proxyName}"
+      - DIRECT
+
+rules:
+  - MATCH,PROXIES
+`;
+}
+
 module.exports = {
   addXrayUser,
   removeXrayUser,
@@ -140,5 +190,6 @@ module.exports = {
   buildVlessUri,
   buildSingBoxConfig,
   buildClashConfig,
+  buildClashMetaYaml,
   FLOW_VISION,
 };

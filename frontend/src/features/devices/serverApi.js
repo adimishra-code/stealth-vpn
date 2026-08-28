@@ -9,6 +9,12 @@ export const serverApi = api.injectEndpoints({
     serverHealth: build.query({
       query: (name) => `/servers/${name}/health`,
     }),
+    pingServers: build.query({
+      query: () => '/servers/ping-all',
+    }),
+    pingServer: build.query({
+      query: (name) => `/servers/${name}/ping`,
+    }),
     getDailyBandwidth: build.query({
       query: (params = {}) => ({
         url: '/bandwidth/daily',
@@ -18,4 +24,12 @@ export const serverApi = api.injectEndpoints({
   }),
 })
 
-export const { useListServersQuery, useServerHealthQuery, useGetDailyBandwidthQuery } = serverApi
+export const {
+  useListServersQuery,
+  useServerHealthQuery,
+  usePingServersQuery,
+  useLazyPingServersQuery,
+  usePingServerQuery,
+  useGetDailyBandwidthQuery,
+} = serverApi
+

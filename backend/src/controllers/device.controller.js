@@ -89,7 +89,7 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.setHeader('Pragma', 'no-cache');
 
-  if (format === 'vless' || format === 'singbox' || format === 'clash') {
+  if (format === 'vless' || format === 'singbox' || format === 'clash' || format === 'clash-yaml' || format === 'clash.yaml') {
     if (!device.encryptedXrayUUID) {
       throw new ApiError(400, 'Device does not have stealth credentials');
     }
@@ -107,6 +107,18 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', `attachment; filename="stealth-${safeFileName}-singbox.json"`);
       return res.send(JSON.stringify(singboxConfig, null, 2));
+    }
+
+    if (format === 'clash-yaml' || format === 'clash.yaml') {
+      const clashYaml = xray.buildClashMetaYaml({
+        serverNode,
+        uuid,
+        deviceName: device.deviceName,
+        nodeKeys,
+      });
+      res.type('yaml');
+      res.setHeader('Content-Disposition', `attachment; filename="stealth-${safeFileName}-clash.yaml"`);
+      return res.send(clashYaml);
     }
 
     if (format === 'clash') {
@@ -191,6 +203,12 @@ exports.getVlessConfig = asyncHandler(async (req, res) => {
     deviceName: device.deviceName,
     nodeKeys,
   });
+  const clashYaml = xray.buildClashMetaYaml({
+    serverNode,
+    uuid,
+    deviceName: device.deviceName,
+    nodeKeys,
+  });
 
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.setHeader('Pragma', 'no-cache');
@@ -200,6 +218,7 @@ exports.getVlessConfig = asyncHandler(async (req, res) => {
     deviceName: device.deviceName,
     singbox,
     clash,
+    clashYaml,
   });
 });
 
