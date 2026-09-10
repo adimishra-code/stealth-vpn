@@ -108,6 +108,7 @@ function buildSingBoxConfig({ serverNode, uuid, deviceName, nodeKeys, sni }) {
       },
     },
     packet_encoding: 'xudp',
+    tcp_fast_open: true,
   };
 }
 
@@ -130,6 +131,8 @@ function buildClashConfig({ serverNode, uuid, deviceName, nodeKeys, sni }) {
       'short-id': nodeKeys?.realityShortId || '',
     },
     'client-fingerprint': 'chrome',
+    tfo: true,
+    'packet-encoding': 'xudp',
   };
 }
 
@@ -166,6 +169,8 @@ proxies:
     udp: true
     flow: ${FLOW_VISION}
     servername: ${effectiveSni}
+    tfo: true
+    packet-encoding: xudp
     reality-opts:
       public-key: ${pubKey}
       short-id: ${shortId}

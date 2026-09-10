@@ -120,20 +120,20 @@ async function getServerNode(name) {
   return node;
 }
 
-function generateWGConfig({ privateKey, assignedIP, serverNode }) {
+function generateWGConfig({ privateKey, assignedIP, serverNode, mtu = 1420 }) {
   const endpoint = `${serverNode.ip}:${serverNode.wgPort}`;
 
   // IPv4-only tunnel: routing ::/0 inside would send native-IPv6 traffic
-  // outside the tunnel (IPv6 leak). MTU 1380 avoids IPv4 fragmentation and
-  // its packet drops on many networks.
+  // outside the tunnel (IPv6 leak). MTU 1420 provides highest throughput for
+  // broadband/fiber; 1380 is available for cellular/mobile fallback.
   const allowedIPs = '0.0.0.0/0';
-  const postUp = `iptables -I OUTPUT ! -o %i -m mark ! --mark $(wg show %i fwmark) -m addrtype ! --dst-type LOCAL -j REJECT`;
-  const preDown = `iptables -D OUTPUT ! -o %i -m mark ! --mark $(wg show %i fwmark) -m addrtype ! --dst-type LOCAL -j REJECT`;
+  const postUp = `iptables -I OUTPUT ! -o %i -m mark ! --mark $(wg show %i fwmark) -m addrtype ! --dst-type LOCAL -j REJECT; iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o %i -j TCPMSS --clamp-mss-to-pmtu`;
+  const preDown = `iptables -D OUTPUT ! -o %i -m mark ! --mark $(wg show %i fwmark) -m addrtype ! --dst-type LOCAL -j REJECT; iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -o %i -j TCPMSS --clamp-mss-to-pmtu`;
 
   return `[Interface]
 PrivateKey = ${privateKey}
 Address = ${assignedIP}/32
-MTU = 1380
+MTU = ${mtu}
 DNS = 10.8.0.1
 # Kill switch, enforced by the official Android/iOS/macOS/Windows apps
 # (BlockUntunneledTraffic = true). wg-quick on Linux ignores this key and
@@ -146,7 +146,7 @@ PreDown = ${preDown}
 PublicKey = ${serverNode.wgPublicKey}
 Endpoint = ${endpoint}
 AllowedIPs = ${allowedIPs}
-PersistentKeepalive = 25`;
+PersistentKeepalive = 21`;
 }
 
 async function provisionPeer({ serverNode, publicKey, assignedIP, plan }) {

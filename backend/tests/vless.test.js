@@ -72,6 +72,8 @@ describe('buildSingBoxConfig and buildClashConfig', () => {
     expect(singbox.uuid).toBe('3f2b9c1e-8a5d-4b7f-9c2e-1d0a6b8f4e3d');
     expect(singbox.tls.reality.public_key).toBe('REALITY_KEY_123');
     expect(singbox.tls.reality.short_id).toBe('short123');
+    expect(singbox.tcp_fast_open).toBe(true);
+    expect(singbox.packet_encoding).toBe('xudp');
   });
 
   test('generates valid clash meta proxy configuration', () => {
@@ -89,6 +91,8 @@ describe('buildSingBoxConfig and buildClashConfig', () => {
     expect(clash.uuid).toBe('3f2b9c1e-8a5d-4b7f-9c2e-1d0a6b8f4e3d');
     expect(clash['reality-opts']['public-key']).toBe('REALITY_KEY_123');
     expect(clash['reality-opts']['short-id']).toBe('short123');
+    expect(clash.tfo).toBe(true);
+    expect(clash['packet-encoding']).toBe('xudp');
   });
 
   test('SEC-06: respects per-node realitySniDest over global default in URI and configs', () => {

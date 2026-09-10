@@ -146,7 +146,8 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
 
   const safeFileName = encodeURIComponent(String(device.deviceName || 'device').replace(/[^a-zA-Z0-9 _-]/g, '_'));
   const privateKey = decryptPrivateKey(device.wgPrivateKey);
-  const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode });
+  const mtu = parseInt(req.query.mtu || req.body?.mtu, 10) || 1420;
+  const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode, mtu });
 
   // API-03: the .conf embeds the WireGuard PRIVATE KEY — browsers and
   // intermediaries must never cache it (a shared machine would leak the key).
@@ -165,7 +166,8 @@ exports.qrcode = asyncHandler(async (req, res) => {
   const serverNode = await ServerNode.findOne({ name: device.serverNode });
   if (!serverNode) throw new ApiError(404, 'Server node not found');
 
-  const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode });
+  const mtu = parseInt(req.query.mtu, 10) || 1420;
+  const config = vpn.generateWGConfig({ privateKey, assignedIP: device.assignedIP, serverNode, mtu });
   const qrDataUrl = await generateQRBase64(config);
   // API-03: the QR encodes the same private key — no caching, ever.
   res.setHeader('Cache-Control', 'no-store, max-age=0');

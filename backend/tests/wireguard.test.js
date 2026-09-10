@@ -47,4 +47,31 @@ describe('WireGuard utilities & Curve25519 key generation', () => {
     expect(isValidIPv4(null)).toBe(false);
     expect(isValidIPv4(12345)).toBe(false);
   });
+
+  test('generateWGConfig generates valid config with default MTU 1420 and TCP MSS clamping', () => {
+    const { generateWGConfig } = require('../src/services/vpn.service');
+    const cfg = generateWGConfig({
+      privateKey: 'priv-key-123',
+      assignedIP: '10.8.0.2',
+      serverNode: { ip: '1.2.3.4', wgPort: 51820, wgPublicKey: 'pub-key-456' },
+    });
+
+    expect(cfg).toContain('MTU = 1420');
+    expect(cfg).toContain('Address = 10.8.0.2/32');
+    expect(cfg).toContain('TCPMSS --clamp-mss-to-pmtu');
+    expect(cfg).toContain('PersistentKeepalive = 21');
+    expect(cfg).toContain('BlockUntunneledTraffic = true');
+  });
+
+  test('generateWGConfig respects custom MTU (e.g. 1380 for cellular)', () => {
+    const { generateWGConfig } = require('../src/services/vpn.service');
+    const cfg = generateWGConfig({
+      privateKey: 'priv-key-123',
+      assignedIP: '10.8.0.2',
+      serverNode: { ip: '1.2.3.4', wgPort: 51820, wgPublicKey: 'pub-key-456' },
+      mtu: 1380,
+    });
+
+    expect(cfg).toContain('MTU = 1380');
+  });
 });

@@ -95,7 +95,6 @@ function verifyStripeWebhook(rawBody, signature) {
 
 // SEC-21: Cancel gateway recurring subscriptions when an account is marked for deletion
 async function cancelCustomerSubscriptions(user) {
-  const Invoice = require('../models/Invoice');
   const results = { stripe: 0, razorpay: 0, errors: [] };
 
   // Cancel active Stripe subscriptions for this customer
