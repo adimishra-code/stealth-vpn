@@ -140,6 +140,7 @@ PostUp   = iptables -A FORWARD -i wg0 -d 192.168.0.0/16 -j DROP
 PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT
 PostUp   = iptables -A FORWARD -o wg0 -j ACCEPT
 PostUp   = iptables -t nat -A POSTROUTING -o ${IFACE} -j MASQUERADE
+PostUp   = iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 PostDown = iptables -D FORWARD -i wg0 -o wg0 -j DROP
 PostDown = iptables -D FORWARD -i wg0 -d 169.254.169.254 -j DROP
@@ -149,6 +150,7 @@ PostDown = iptables -D FORWARD -i wg0 -d 192.168.0.0/16 -j DROP
 PostDown = iptables -D FORWARD -i wg0 -j ACCEPT
 PostDown = iptables -D FORWARD -o wg0 -j ACCEPT
 PostDown = iptables -t nat -D POSTROUTING -o ${IFACE} -j MASQUERADE
+PostDown = iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 SaveConfig = true
 WGCONF
@@ -164,6 +166,32 @@ net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=0
 net.ipv6.conf.${IFACE}.disable_ipv6=0
 net.ipv6.conf.wg0.disable_ipv6=1
+
+# ── Low-latency & congestion control tuning ───────────────────────────────────
+# Fair Queueing (fq) + BBR congestion control: minimizes queuing delay and
+# avoids throughput collapse on lossy links
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+
+# TCP Fast Open (3 = client & server enabled): saves 1 full RTT on handshakes
+net.ipv4.tcp_fastopen=3
+
+# Sockets & buffer sizing: eliminates packet drops during high-speed bursts
+net.core.rmem_max=67108864
+net.core.wmem_max=67108864
+net.core.rmem_default=262144
+net.core.wmem_default=262144
+net.core.netdev_max_backlog=10000
+net.ipv4.tcp_rmem=4096 87380 33554432
+net.ipv4.tcp_wmem=4096 65536 33554432
+net.ipv4.udp_rmem_min=8192
+net.ipv4.udp_wmem_min=8192
+
+# Disable slow start after idle: eliminates latency lag after inactivity
+net.ipv4.tcp_slow_start_after_idle=0
+# Fast TIME_WAIT socket recycling
+net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_window_scaling=1
 
 # ── Kernel hardening (nodes are Internet-facing) ─────────────────────────────
 # Reverse-path filtering: drop packets arriving on the wrong interface —
@@ -220,6 +248,20 @@ server:
     qname-minimisation: yes
     qname-minimisation-strict: yes
     prefetch: yes
+    prefetch-key: yes
+    # RFC 8767: serve expired records instantly (0-1ms) while refreshing in background
+    serve-expired: yes
+    serve-expired-ttl: 86400
+    serve-expired-reply-ttl: 30
+    # Multi-threaded slab caches to prevent lock contention
+    msg-cache-slabs: 4
+    rrset-cache-slabs: 4
+    infra-cache-slabs: 4
+    key-cache-slabs: 4
+    rrset-cache-size: 64m
+    msg-cache-size: 32m
+    so-rcvbuf: 4m
+    so-sndbuf: 4m
     cache-min-ttl: 60
     cache-max-ttl: 3600
     private-address: 10.0.0.0/8
@@ -372,12 +414,18 @@ tc qdisc add dev wg0 root handle 1: htb default 999 2>/dev/null || \
 tc class add dev wg0 parent 1: classid 1:999 htb rate 1000mbit 2>/dev/null || true
 tc class add dev wg0 parent 1: classid 2:999 htb rate 1000mbit 2>/dev/null || true
 
-# Residential-look jitter: netem must hang off the HTB class (parent 1:999),
-# not the device root — wg0 already owns the root qdisc.
-tc qdisc add dev wg0 parent 1:999 handle 10: netem \
-  delay 5ms 13ms distribution normal loss 0.01% 2>/dev/null || \
-  tc qdisc replace dev wg0 parent 1:999 handle 10: netem \
-    delay 5ms 13ms distribution normal loss 0.01%
+# Performance default: zero artificial latency or packet loss.
+# Set STEALTH_JITTER=true only when strict residential traffic emulation is preferred over raw latency.
+if [[ "${STEALTH_JITTER:-false}" == "true" ]]; then
+  tc qdisc add dev wg0 parent 1:999 handle 10: netem \
+    delay 5ms 13ms distribution normal loss 0.01% 2>/dev/null || \
+    tc qdisc replace dev wg0 parent 1:999 handle 10: netem \
+      delay 5ms 13ms distribution normal loss 0.01%
+else
+  # Ultra-low latency: pure fq_codel leaf for optimal packet pacing without artificial delay
+  tc qdisc add dev wg0 parent 1:999 handle 10: fq_codel 2>/dev/null || \
+    tc qdisc replace dev wg0 parent 1:999 handle 10: fq_codel 2>/dev/null || true
+fi
 
 # Reduce MTU on WG interface — prevents packet-size signatures
 ip link set wg0 mtu 1380

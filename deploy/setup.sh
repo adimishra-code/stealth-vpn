@@ -154,6 +154,7 @@ PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -d 192.168.0.0/16 -j DROP
 PostUp   = iptables -A FORWARD -i ${WG_INTERFACE} -j ACCEPT
 PostUp   = iptables -A FORWARD -o ${WG_INTERFACE} -j ACCEPT
 PostUp   = iptables -t nat -A POSTROUTING -o ${IFACE} -j MASQUERADE
+PostUp   = iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -o ${WG_INTERFACE} -j DROP
 PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -d 169.254.169.254 -j DROP
@@ -163,6 +164,7 @@ PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -d 192.168.0.0/16 -j DROP
 PostDown = iptables -D FORWARD -i ${WG_INTERFACE} -j ACCEPT
 PostDown = iptables -D FORWARD -o ${WG_INTERFACE} -j ACCEPT
 PostDown = iptables -t nat -D POSTROUTING -o ${IFACE} -j MASQUERADE
+PostDown = iptables -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 SaveConfig = true
 WGCONF
@@ -200,6 +202,32 @@ net.ipv4.conf.all.accept_redirects=0
 net.ipv4.conf.default.accept_redirects=0
 net.ipv4.conf.all.send_redirects=0
 net.ipv4.conf.default.send_redirects=0
+
+# ── Low-latency & congestion control tuning ───────────────────────────────────
+# Fair Queueing (fq) + BBR congestion control: minimizes queuing delay and
+# avoids throughput collapse on lossy links
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+
+# TCP Fast Open (3 = client & server enabled): saves 1 full RTT on handshakes
+net.ipv4.tcp_fastopen=3
+
+# Sockets & buffer sizing: eliminates packet drops during high-speed bursts
+net.core.rmem_max=67108864
+net.core.wmem_max=67108864
+net.core.rmem_default=262144
+net.core.wmem_default=262144
+net.core.netdev_max_backlog=10000
+net.ipv4.tcp_rmem=4096 87380 33554432
+net.ipv4.tcp_wmem=4096 65536 33554432
+net.ipv4.udp_rmem_min=8192
+net.ipv4.udp_wmem_min=8192
+
+# Disable slow start after idle: eliminates latency lag after inactivity
+net.ipv4.tcp_slow_start_after_idle=0
+# Fast TIME_WAIT socket recycling
+net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_window_scaling=1
 
 # OS hardening (INFRA-17)
 net.ipv4.tcp_syncookies=1
