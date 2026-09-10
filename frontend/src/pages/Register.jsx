@@ -84,7 +84,7 @@ export default function Register() {
 
         <div className="bg-surface border border-line-strong rounded-2xl p-8 shadow-[0_24px_64px_rgba(0,0,0,0.45)]">
           <h1 className="font-display text-xl font-semibold text-ink tracking-tight mb-1">Create account</h1>
-          <p className="text-sm text-faint mb-6">Start with the free plan — upgrade anytime</p>
+          <p className="text-sm text-faint mb-6">Private network for friends — requires admin approval after signup</p>
 
           {error && (
             <div className="flex items-start gap-2.5 text-danger text-sm rounded-lg p-3 mb-4 animate-fade-in border border-danger/30 bg-danger/10" role="alert">

@@ -10,6 +10,18 @@ const logger = require('../config/logger');
 const { nextQuotaResetAt } = require('../services/bandwidth.service');
 const { audit } = require('../services/audit.service');
 
+function checkUserEntitlement(user) {
+  if (user.role !== 'admin' && !user.isApproved) {
+    throw new ApiError(403, 'Account pending administrator approval. Key generation is locked.');
+  }
+  if (!user.plan || user.plan === 'free') {
+    throw new ApiError(403, 'No active plan. An administrator must approve or activate your access.');
+  }
+  if (!user.planExpiresAt || user.planExpiresAt < new Date()) {
+    throw new ApiError(403, 'Monthly plan expired. Account must be reactivated by administrator.');
+  }
+}
+
 exports.listDevices = asyncHandler(async (req, res) => {
   const devices = await Device.find({ userId: req.user._id })
     .select('-wgPrivateKey -encryptedXrayUUID -__v')
@@ -20,12 +32,7 @@ exports.listDevices = asyncHandler(async (req, res) => {
 exports.addDevice = asyncHandler(async (req, res) => {
   const { deviceName, serverNode, mode, clientCountry } = req.body;
   const user = req.user;
-  if (!user.plan || user.plan === 'free') {
-    throw new ApiError(403, 'No active plan. Subscribe to add devices.');
-  }
-  if (!user.planExpiresAt || user.planExpiresAt < new Date()) {
-    throw new ApiError(403, 'Plan expired. Renew to add devices.');
-  }
+  checkUserEntitlement(user);
 
   const detectedCountry = clientCountry || req.headers['cf-ipcountry'] || req.headers['x-country-code'] || null;
 
@@ -80,6 +87,7 @@ exports.revokeDevice = asyncHandler(async (req, res) => {
 });
 
 exports.downloadConfig = asyncHandler(async (req, res) => {
+  checkUserEntitlement(req.user);
   const device = await Device.findOne({ _id: req.params.id, userId: req.user._id });
   if (!device) throw new ApiError(404, 'Device not found');
   if (!device.isActive) throw new ApiError(400, 'Device revoked');
@@ -161,6 +169,7 @@ exports.downloadConfig = asyncHandler(async (req, res) => {
 });
 
 exports.qrcode = asyncHandler(async (req, res) => {
+  checkUserEntitlement(req.user);
   const device = await Device.findOne({ _id: req.params.id, userId: req.user._id });
   if (!device) throw new ApiError(404, 'Device not found');
   if (!device.isActive) throw new ApiError(400, 'Device revoked');
@@ -179,6 +188,7 @@ exports.qrcode = asyncHandler(async (req, res) => {
 });
 
 exports.getVlessConfig = asyncHandler(async (req, res) => {
+  checkUserEntitlement(req.user);
   const device = await Device.findOne({ _id: req.params.id, userId: req.user._id });
   if (!device) throw new ApiError(404, 'Device not found');
   if (!device.isActive) throw new ApiError(400, 'Device revoked');

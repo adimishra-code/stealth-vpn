@@ -42,9 +42,24 @@ const features = [
 ]
 
 const plans = [
-  { name: 'Basic', inr: '₹99', usd: '$1.99', devices: '1 device', speed: '500 GB/mo', highlight: false },
-  { name: 'Pro', inr: '₹199', usd: '$3.99', devices: '3 devices', speed: 'Unlimited', highlight: true },
-  { name: 'Team', inr: '₹499', usd: '$9.99', devices: '10 devices', speed: 'Unlimited', highlight: false },
+  {
+    name: 'Free (Locked)',
+    inr: '₹0',
+    usd: 'Sign up',
+    devices: '0 devices',
+    speed: 'Key generation locked',
+    highlight: false,
+    badge: 'DEFAULT',
+  },
+  {
+    name: 'Pro (Friends Network)',
+    inr: 'Free',
+    usd: 'Invite Only',
+    devices: 'Max 2 devices',
+    speed: '100 Mbps max speed',
+    highlight: true,
+    badge: 'ADMIN APPROVED',
+  },
 ]
 
 const stats = [
@@ -165,27 +180,28 @@ export default function Landing() {
       <section id="pricing" className="max-w-6xl mx-auto px-4 py-20 scroll-mt-20">
         <Reveal>
           <div className="text-center mb-14">
-            <h2 className="font-display text-3xl md:text-4xl font-semibold text-ink tracking-tight">Simple pricing</h2>
-            <p className="text-muted mt-3">Cancel anytime. No content logging — connection metadata is retained as required under Indian IT law (CERT-In).</p>
+            <h2 className="font-display text-3xl md:text-4xl font-semibold text-ink tracking-tight">Private network access</h2>
+            <p className="text-muted mt-3">Exclusive invite-only network for friends. Zero subscription charges, 100 Mbps max speed, and no mid plans.</p>
           </div>
         </Reveal>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl mx-auto items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto items-start">
           {plans.map((p, i) => (
             <Reveal key={p.name} delay={i * 120}>
               <div
                 className={`relative p-8 rounded-2xl transition-all duration-200 ${
                   p.highlight
-                    ? 'bg-surface border-2 border-accent-400/40 shadow-[var(--shadow-card-hover),var(--shadow-glow-accent)] scale-[1.03] hover:scale-[1.05] hover:shadow-[var(--shadow-card-hover),var(--shadow-glow-accent-strong)] z-10'
+                    ? 'bg-surface border-2 border-accent-400/40 shadow-[var(--shadow-card-hover),var(--shadow-glow-accent)] scale-[1.02] hover:scale-[1.04] hover:shadow-[var(--shadow-card-hover),var(--shadow-glow-accent-strong)] z-10'
                     : 'bg-surface border border-line shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-card-hover)] hover:-translate-y-1 hover:border-accent-400/20'
                 }`}
               >
-                {p.highlight && (
+                {p.badge && (
                   <>
-                    {/* Top accent stripe */}
                     <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent-400 to-transparent rounded-t-2xl" />
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-accent-400 text-void text-xs font-bold rounded-full tracking-wide whitespace-nowrap shadow-[var(--shadow-glow-accent)]">
-                      MOST POPULAR
+                    <div className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 text-xs font-bold rounded-full tracking-wide whitespace-nowrap ${
+                      p.highlight ? 'bg-accent-400 text-void shadow-[var(--shadow-glow-accent)]' : 'bg-raised text-faint border border-line'
+                    }`}>
+                      {p.badge}
                     </div>
                   </>
                 )}
@@ -193,10 +209,10 @@ export default function Landing() {
                 <div className="mt-6 mb-6">
                   <span className="text-5xl font-bold text-ink tracking-tight tabular-nums">{p.inr}</span>
                   <span className="text-sm text-muted">/month</span>
-                  <div className="font-mono text-xs text-faint mt-1">{p.usd} for international</div>
+                  <div className="font-mono text-xs text-faint mt-1">{p.usd}</div>
                 </div>
                 <ul className="space-y-2.5 text-sm text-muted mb-8">
-                  {[p.devices, p.speed, 'All server locations', 'Stealth + Gaming modes'].map((item) => (
+                  {[p.devices, p.speed, 'All server locations', 'WireGuard & XTLS Reality'].map((item) => (
                     <li key={item} className="flex items-center gap-2.5">
                       <Check size={15} className="text-accent-400 shrink-0" strokeWidth={2.5} />
                       {item}
@@ -204,10 +220,10 @@ export default function Landing() {
                   ))}
                 </ul>
                 <Link
-                  to={token ? '/billing' : '/register'}
+                  to={token ? '/dashboard' : '/register'}
                   className={`${p.highlight ? 'btn-primary' : 'btn-secondary'} w-full`}
                 >
-                  Choose {p.name}
+                  {token ? 'Go to Dashboard' : p.highlight ? 'Request Access' : 'Create Account'}
                 </Link>
               </div>
             </Reveal>

@@ -24,6 +24,7 @@ exports.listUsers = asyncHandler(async (req, res) => {
   const limit = req.body.limit || 20;
   const search = req.body.search ? String(req.body.search).trim() : '';
   const plan = req.body.plan;
+  const approvalStatus = req.body.approvalStatus;
 
   const filter = {};
   if (search) {
@@ -31,6 +32,16 @@ exports.listUsers = asyncHandler(async (req, res) => {
   }
   if (plan) {
     filter.plan = plan;
+  }
+  if (approvalStatus === 'pending') {
+    filter.role = { $ne: 'admin' };
+    filter.isApproved = { $ne: true };
+  } else if (approvalStatus === 'reactivation_requested') {
+    filter.reactivationRequested = true;
+  } else if (approvalStatus === 'expired') {
+    filter.planExpiresAt = { $lt: new Date() };
+  } else if (approvalStatus === 'approved') {
+    filter.isApproved = true;
   }
 
   const [users, total] = await Promise.all([
@@ -98,6 +109,55 @@ exports.updateUser = asyncHandler(async (req, res) => {
       isActive: user.isActive,
       banReason: user.banReason,
       bannedAt: user.bannedAt,
+    },
+  });
+});
+
+exports.approveUser = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  // Grant 30 days monthly Pro access (2 devices max, 100 Mbps traffic shaped)
+  user.isApproved = true;
+  user.approvedAt = new Date();
+  user.approvedBy = req.user._id;
+  user.plan = 'pro';
+  user.planExpiresAt = new Date(Date.now() + 30 * 86400000);
+  user.isActive = true;
+  user.reactivationRequested = false;
+  user.reactivationRequestedAt = undefined;
+  user.notified = { threeDayWarning: false, oneDayWarning: false };
+  await user.save();
+
+  audit({
+    adminId: req.user._id,
+    actorType: 'admin',
+    action: 'user.approve',
+    targetType: 'user',
+    targetId: user._id.toString(),
+    details: { plan: 'pro', durationDays: 30, maxDevices: 2, speedLimitMbps: 100 },
+    ip: req.ip,
+  });
+
+  logger.info('User approved for 30-day Pro access', {
+    adminId: req.user._id.toString(),
+    userId: user._id.toString(),
+    planExpiresAt: user.planExpiresAt,
+  });
+
+  res.json({
+    message: 'User approved and activated for 30 days on the Pro plan.',
+    user: {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      plan: user.plan,
+      isApproved: user.isApproved,
+      approvedAt: user.approvedAt,
+      planExpiresAt: user.planExpiresAt,
+      isActive: user.isActive,
     },
   });
 });
@@ -185,8 +245,17 @@ exports.getAlerts = asyncHandler(async (req, res) => {
     isActive: true,
   }).select('email plan planExpiresAt');
   const offlineNodes = await ServerNode.find({ isOnline: false }).select('name ip lastHealthCheck');
+  const pendingUsers = await User.find({
+    role: { $ne: 'admin' },
+    isApproved: { $ne: true },
+    isActive: true,
+  }).select('email createdAt');
+  const reactivationRequests = await User.find({
+    reactivationRequested: true,
+    isActive: true,
+  }).select('email plan planExpiresAt reactivationRequestedAt');
 
-  res.json({ failedPayments, expiredUsers, offlineNodes });
+  res.json({ failedPayments, expiredUsers, offlineNodes, pendingUsers, reactivationRequests });
 });
 
 exports.listDevices = asyncHandler(async (req, res) => {

@@ -1,20 +1,7 @@
-// Payment flows (PAY-03/PAY-06): the billing page renders all plans, routes
-// Razorpay orders to the checkout overlay, and Stripe sessions to the
-// redirect URL. API hooks are mocked; razorpay is stubbed at the window.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor, act } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi } from 'vitest'
+import { screen } from '@testing-library/react'
 import Billing from '../../pages/Billing'
 import { renderWithProviders } from '../../test/test-utils'
-
-const { createOrder, createStripeSession, verifyPayment, confirmStripe, downgradePlan, cancelSubscription } = vi.hoisted(() => ({
-  createOrder: vi.fn(),
-  createStripeSession: vi.fn(),
-  verifyPayment: vi.fn(),
-  confirmStripe: vi.fn(),
-  downgradePlan: vi.fn(),
-  cancelSubscription: vi.fn(),
-}))
 
 vi.mock('../../features/payment/paymentApi', () => ({
   useListInvoicesQuery: () => ({
@@ -23,155 +10,69 @@ vi.mock('../../features/payment/paymentApi', () => ({
     isError: false,
     refetch: vi.fn(),
   }),
-  useCreateOrderMutation: () => [createOrder, { isLoading: false }],
-  useCreateStripeSessionMutation: () => [createStripeSession, { isLoading: false }],
-  useVerifyPaymentMutation: () => [verifyPayment, { isLoading: false }],
-  useConfirmStripeMutation: () => [confirmStripe, { isLoading: false }],
-  useDowngradePlanMutation: () => [downgradePlan, { isLoading: false }],
-  useCancelSubscriptionMutation: () => [cancelSubscription, { isLoading: false }],
+  useCreateOrderMutation: () => [vi.fn(), { isLoading: false }],
+  useCreateStripeSessionMutation: () => [vi.fn(), { isLoading: false }],
+  useVerifyPaymentMutation: () => [vi.fn(), { isLoading: false }],
+  useConfirmStripeMutation: () => [vi.fn(), { isLoading: false }],
+  useDowngradePlanMutation: () => [vi.fn(), { isLoading: false }],
+  useCancelSubscriptionMutation: () => [vi.fn(), { isLoading: false }],
 }))
 
-vi.mock('../../utils/razorpay', () => ({
-  loadRazorpay: vi.fn(async () => {
-    window.Razorpay = class {
-      constructor(options) {
-        window.__lastRzpHandler = options.handler
-      }
-      open() {}
-    }
-  }),
-}))
-
-const assignSpy = vi.fn()
-const reloadSpy = vi.fn()
-
-beforeEach(() => {
-  createOrder.mockReset().mockImplementation(() => ({
-    unwrap: async () => ({ amount: 19900, currency: 'INR', orderId: 'order_xyz' }),
-  }))
-  createStripeSession.mockReset().mockImplementation(() => ({
-    unwrap: async () => ({ sessionUrl: 'https://checkout.stripe.com/c/pay_test' }),
-  }))
-  verifyPayment.mockReset().mockImplementation(() => ({
-    unwrap: async () => ({
-      config: '[Interface]\nPrivateKey=abc\n',
-      qrDataUrl: 'data:image/png;base64,AAA',
-      vlessUri: 'vless://abc',
-      vlessQrDataUrl: 'data:image/png;base64,BBB',
-      device: { deviceName: 'billing-sub', plan: 'pro' },
-    }),
-  }))
-  assignSpy.mockReset()
-  reloadSpy.mockReset()
-  window.__lastRzpHandler = null
-  Object.defineProperty(window, 'location', {
-    writable: true,
-    value: { origin: 'https://app.example.com', assign: assignSpy, reload: reloadSpy },
-  })
-  delete window.Razorpay
-})
-
-function renderBilling() {
+function renderBilling(userOverrides = {}) {
   return renderWithProviders(<Billing />, {
-    preloadedState: { auth: { user: { role: 'user', plan: 'basic' }, accessToken: 'jwt', loading: false } },
+    preloadedState: {
+      auth: {
+        user: { role: 'user', plan: 'pro', isApproved: true, planExpiresAt: new Date(Date.now() + 20 * 86400000), ...userOverrides },
+        accessToken: 'jwt',
+        loading: false,
+      },
+    },
   })
 }
 
-describe('Billing page (PAY-03)', () => {
-  it('renders all three plans with their prices', () => {
+describe('Billing / Access & Membership page', () => {
+  it('renders Free (Locked) and Pro (Friends Network) tiers with no mid plans', () => {
     renderBilling()
 
-    expect(screen.getByText('₹99')).toBeInTheDocument()
-    expect(screen.getByText('₹199')).toBeInTheDocument()
-    expect(screen.getByText('₹499')).toBeInTheDocument()
+    expect(screen.getByText('Free (Locked)')).toBeInTheDocument()
+    expect(screen.getByText('Pro (Friends Network)')).toBeInTheDocument()
+
+    // No mid-tier plans
+    expect(screen.queryByText('Basic')).not.toBeInTheDocument()
+    expect(screen.queryByText('Team')).not.toBeInTheDocument()
   })
 
-  it('routes a Razorpay subscription to the checkout overlay', async () => {
-    const user = userEvent.setup()
+  it('displays Pro tier features: 2 devices, 100 Mbps max speed, and monthly 30-day cycle', () => {
     renderBilling()
 
-    // Three plans × two buttons (INR = Razorpay, USD = Stripe); pick the pro plan's INR.
-    const inrButtons = screen.getAllByRole('button', { name: 'INR' })
-    await user.click(inrButtons[1])
-
-    await waitFor(() =>
-      expect(createOrder).toHaveBeenCalledWith({
-        plan: 'pro',
-        serverNode: 'auto',
-        deviceName: 'billing-sub',
-        mode: 'stealth',
-      })
-    )
-
-    await waitFor(() => expect(window.Razorpay).toBeDefined())
-
-    // Drive the Razorpay success handler and assert the delivery modal
-    // opens (config + QR delivered) instead of a full-page reload.
-    await act(async () => {
-      await window.__lastRzpHandler({
-        razorpay_payment_id: 'pay_1',
-        razorpay_order_id: 'order_xyz',
-        razorpay_signature: 'sig',
-      })
-    })
-
-    await waitFor(() => expect(verifyPayment).toHaveBeenCalled())
-    await waitFor(() => expect(screen.getByText('Device ready')).toBeInTheDocument())
-    expect(reloadSpy).not.toHaveBeenCalled()
+    expect(screen.getByText('Max 2 devices')).toBeInTheDocument()
+    expect(screen.getByText('100 Mbps max speed')).toBeInTheDocument()
+    expect(screen.getByText('Strict limit: 2 devices')).toBeInTheDocument()
+    expect(screen.getByText('Monthly 30-day access cycle')).toBeInTheDocument()
   })
 
-  it('routes a Stripe subscription to the session redirect URL', async () => {
-    const user = userEvent.setup()
+  it('displays Free tier features: 0 allowed devices and key generation locked', () => {
     renderBilling()
 
-    await user.click(screen.getAllByRole('button', { name: 'USD' })[0])
-
-    await waitFor(() =>
-      expect(createStripeSession).toHaveBeenCalledWith(
-        expect.objectContaining({ plan: 'basic', successUrl: expect.stringContaining('/billing?session_id=') })
-      )
-    )
-    await waitFor(() =>
-      expect(assignSpy).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay_test')
-    )
+    expect(screen.getByText('0 devices (locked)')).toBeInTheDocument()
+    expect(screen.getByText('Key generation disabled')).toBeInTheDocument()
+    expect(screen.getByText('0 allowed devices')).toBeInTheDocument()
+    expect(screen.getByText('Requires administrator approval')).toBeInTheDocument()
   })
 
-  it('opens downgrade modal and submits plan downgrade', async () => {
-    downgradePlan.mockImplementation(() => ({
-      unwrap: async () => ({ message: 'Plan changed to BASIC', user: { plan: 'basic' } }),
-    }))
-    const user = userEvent.setup()
-    renderBilling()
+  it('shows PENDING APPROVAL indicator when user is on unapproved free tier', () => {
+    renderBilling({ plan: 'free', isApproved: false, planExpiresAt: null })
 
-    const changeBtn = screen.getByRole('button', { name: /Change \/ Downgrade/i })
-    await user.click(changeBtn)
-
-    expect(screen.getByText('Change / Downgrade Plan')).toBeInTheDocument()
-    const confirmBtn = screen.getByRole('button', { name: /Confirm Change/i })
-    await user.click(confirmBtn)
-
-    await waitFor(() =>
-      expect(downgradePlan).toHaveBeenCalledWith({ targetPlan: 'basic' })
-    )
+    expect(screen.getByText('PENDING APPROVAL')).toBeInTheDocument()
+    expect(
+      screen.getByText(/An administrator must accept and approve your account before you can generate VPN keys/i)
+    ).toBeInTheDocument()
   })
 
-  it('opens cancel modal and submits subscription cancellation', async () => {
-    cancelSubscription.mockImplementation(() => ({
-      unwrap: async () => ({ message: 'Subscription cancelled', user: { plan: 'free' } }),
-    }))
-    const user = userEvent.setup()
-    renderBilling()
+  it('shows ACTIVE indicator when user has active approved Pro plan', () => {
+    renderBilling({ plan: 'pro', isApproved: true, planExpiresAt: new Date(Date.now() + 15 * 86400000) })
 
-    const cancelBtn = screen.getByRole('button', { name: /Cancel subscription/i })
-    await user.click(cancelBtn)
-
-    expect(screen.getByText('Cancel VPN Subscription')).toBeInTheDocument()
-    const confirmBtn = screen.getByRole('button', { name: /Yes, Cancel Subscription/i })
-    await user.click(confirmBtn)
-
-    await waitFor(() =>
-      expect(cancelSubscription).toHaveBeenCalled()
-    )
+    expect(screen.getByText('ACTIVE')).toBeInTheDocument()
+    expect(screen.getByText(/You can generate keys for up to/i)).toBeInTheDocument()
   })
 })
-

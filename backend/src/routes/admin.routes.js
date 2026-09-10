@@ -21,6 +21,7 @@ router.use(authMiddleware, adminMiddleware, adminLimiter);
 // never appear in access logs (PRIV-07/08).
 router.post('/users', validate(adminListUsersSchema), adminController.listUsers);
 router.patch('/users/:id', validate(adminUpdateUserSchema), adminController.updateUser);
+router.post('/users/:id/approve', adminController.approveUser);
 router.post('/users/:id/ban', validate(adminBanUserSchema), adminController.banUser);
 router.get('/revenue', adminController.getRevenue);
 router.get('/bandwidth', adminController.getBandwidthStats);

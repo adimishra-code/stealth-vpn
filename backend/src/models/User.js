@@ -35,6 +35,20 @@ const UserSchema = new mongoose.Schema({
     default: 'free',
   },
   planExpiresAt: Date,
+  isApproved: {
+    type: Boolean,
+    default: false,
+  },
+  approvedAt: Date,
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
+  reactivationRequested: {
+    type: Boolean,
+    default: false,
+  },
+  reactivationRequestedAt: Date,
   isActive: {
     type: Boolean,
     default: true,
@@ -110,6 +124,8 @@ const UserSchema = new mongoose.Schema({
 UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ planExpiresAt: 1 });
 UserSchema.index({ isActive: 1, plan: 1 });
+UserSchema.index({ isApproved: 1 });
+UserSchema.index({ reactivationRequested: 1 });
 // Token lookups (verify/reset) run by digest — index so they stay O(log n).
 UserSchema.index({ emailVerifyToken: 1 }, { sparse: true });
 UserSchema.index({ passwordResetToken: 1 }, { sparse: true });

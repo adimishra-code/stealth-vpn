@@ -2,7 +2,15 @@ const request = require('supertest');
 const { signAccessToken } = require('../src/utils/jwt');
 const { encryptPrivateKey, randomUUID } = require('../src/utils/crypto');
 
-const mockUser = { _id: 'u100', role: 'user', email: 'user@example.com', isActive: true, plan: 'pro' };
+const mockUser = {
+  _id: 'u100',
+  role: 'user',
+  email: 'user@example.com',
+  isActive: true,
+  isApproved: true,
+  plan: 'pro',
+  planExpiresAt: new Date(Date.now() + 30 * 86400000),
+};
 
 const testUUID = randomUUID();
 const mockDevice = {

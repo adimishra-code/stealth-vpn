@@ -89,6 +89,9 @@ function publicUser(user) {
     plan: user.plan,
     planExpiresAt: user.planExpiresAt,
     emailVerified: user.emailVerified,
+    isApproved: user.role === 'admin' || !!user.isApproved,
+    approvedAt: user.approvedAt,
+    reactivationRequested: !!user.reactivationRequested,
     // ADMIN-01: surface the flag (never the secret) so the settings UI can
     // render the 2FA card.
     totpEnabled: !!user.totpEnabled,
@@ -525,4 +528,35 @@ exports.resetPassword = asyncHandler(async (req, res) => {
   });
 
   res.json({ message: 'Password updated. You can now log in.' });
+});
+
+exports.requestReactivation = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  user.reactivationRequested = true;
+  user.reactivationRequestedAt = new Date();
+  await user.save();
+
+  audit({
+    adminId: user._id,
+    actorType: 'user',
+    action: 'user.request_reactivation',
+    targetType: 'user',
+    targetId: user._id.toString(),
+    details: { email: user.email },
+    ip: req.ip,
+  });
+
+  logger.info('User requested monthly reactivation', {
+    userId: user._id.toString(),
+    email: user.email,
+  });
+
+  res.json({
+    message: 'Reactivation request submitted to administrator.',
+    user: publicUser(user),
+  });
 });

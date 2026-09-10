@@ -40,6 +40,7 @@ router.post('/forgot-password', forgotPasswordLimiter, validate(forgotPasswordSc
 router.post('/resend-verify', registerLimiter, validate(forgotPasswordSchema), authController.resendVerify);
 router.post('/reset-password', resetPasswordLimiter, validate(resetPasswordSchema), authController.resetPassword);
 router.get('/me', authMiddleware, authController.me);
+router.post('/request-reactivation', authMiddleware, authController.requestReactivation);
 // Right to be forgotten: revokes everything now, hard-deletes after the
 // grace period via the purge cron.
 router.delete('/me', authMiddleware, accountDeletionController.requestAccountDeletion);

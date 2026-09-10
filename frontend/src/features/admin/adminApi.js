@@ -79,6 +79,13 @@ export const adminApi = api.injectEndpoints({
         'Devices',
       ],
     }),
+    approveUser: build.mutation({
+      query: (userId) => ({
+        url: `/admin/users/${userId}/approve`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Users'],
+    }),
     resetBandwidth: build.mutation({
       query: (deviceId) => ({
         url: `/admin/devices/${deviceId}/reset-bandwidth`,
@@ -105,5 +112,6 @@ export const {
   useRevokeDeviceMutation,
   useExtendDeviceMutation,
   useBanUserMutation,
+  useApproveUserMutation,
   useResetBandwidthMutation,
 } = adminApi

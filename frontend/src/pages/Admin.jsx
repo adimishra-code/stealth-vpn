@@ -12,6 +12,7 @@ import {
   useExpireDeviceMutation,
   useRevokeDeviceMutation,
   useBanUserMutation,
+  useApproveUserMutation,
   useResetBandwidthMutation,
 } from '../features/admin/adminApi'
 import {
@@ -21,7 +22,7 @@ import ExtendModal from '../components/admin/ExtendModal'
 import ConfirmModal from '../components/ConfirmModal'
 import { toast } from '../lib/toast'
 import useDebounce from '../hooks/useDebounce'
-import { Ban, ShieldCheck, Search, ChevronLeft, ChevronRight, ServerCrash, AlertTriangle, Clock3, Power, ShieldOff, CalendarPlus, RotateCcw, Loader2 } from 'lucide-react'
+import { Ban, ShieldCheck, Search, ChevronLeft, ChevronRight, ServerCrash, AlertTriangle, Clock3, Power, ShieldOff, CalendarPlus, RotateCcw, Loader2, UserCheck } from 'lucide-react'
 
 const baseActionBtn = 'p-1.5 rounded-md text-faint hover:text-ink hover:bg-raised disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98]'
 const dangerActionBtn = 'p-1.5 rounded-md text-faint hover:text-danger hover:bg-danger/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98]'
@@ -58,6 +59,7 @@ export default function Admin() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [planFilter, setPlanFilter] = useState('')
+  const [approvalFilter, setApprovalFilter] = useState('')
   const [userError, setUserError] = useState(null)
   const [deviceSearch, setDeviceSearch] = useState('')
   const [devicePage, setDevicePage] = useState(1)
@@ -69,7 +71,13 @@ export default function Admin() {
   const debouncedSearch = useDebounce(search, 300)
   const debouncedDeviceSearch = useDebounce(deviceSearch, 300)
 
-  const { data: usersData, isFetching: usersLoading, isError: usersError, refetch: refetchUsers } = useListUsersQuery({ search: debouncedSearch, plan: planFilter, page, limit: 10 })
+  const { data: usersData, isFetching: usersLoading, isError: usersError, refetch: refetchUsers } = useListUsersQuery({
+    search: debouncedSearch,
+    plan: planFilter,
+    approvalStatus: approvalFilter || undefined,
+    page,
+    limit: 10,
+  })
   const { data: revenueData, isError: revenueError } = useGetRevenueQuery()
   const { data: bandwidthData, isError: bandwidthError } = useGetAdminBandwidthQuery()
   const { data: alertsData, isError: alertsError } = useGetAlertsQuery()
@@ -77,6 +85,7 @@ export default function Admin() {
   const { data: auditData, isError: auditError } = useGetAuditLogsQuery({ limit: 25 })
   const { data: devicesData, isFetching: devicesLoading, isError: devicesError, refetch: refetchDevices } = useListDevicesQuery({ search: debouncedDeviceSearch, page: devicePage, limit: 10 })
   const [updateUser, { isLoading: updating }] = useUpdateUserMutation()
+  const [approveUser] = useApproveUserMutation()
   const [expireDevice] = useExpireDeviceMutation()
   const [revokeDevice] = useRevokeDeviceMutation()
   const [banUser, { isLoading: banning }] = useBanUserMutation()
@@ -87,6 +96,18 @@ export default function Admin() {
   const devices = devicesData?.devices || []
   const devicePagination = devicesData?.pagination
   const inrDaily = (revenueData?.daily || []).filter((r) => r.currency === 'INR')
+
+  const handleApprove = async (userId, email) => {
+    setLoadingId(userId)
+    try {
+      await approveUser(userId).unwrap()
+      toast.success(`Approved ${email} for 30-day Pro access (max 2 devices, 100 Mbps)`)
+    } catch (err) {
+      toast.error(err?.data?.error ?? 'Failed to approve user')
+    } finally {
+      setLoadingId(null)
+    }
+  }
 
   const handleUpdate = async (id, changes) => {
     setUserError(null)
@@ -215,6 +236,20 @@ export default function Admin() {
   }
 
   const alerts = [
+    alertsData?.pendingUsers?.length > 0 && {
+      tone: 'warn',
+      Icon: UserCheck,
+      title: 'Pending Approvals',
+      detail: `${alertsData.pendingUsers.length} user${alertsData.pendingUsers.length > 1 ? 's' : ''} waiting for VPN access approval`,
+      count: alertsData.pendingUsers.length,
+    },
+    alertsData?.reactivationRequests?.length > 0 && {
+      tone: 'warn',
+      Icon: RotateCcw,
+      title: 'Reactivation Requests',
+      detail: `${alertsData.reactivationRequests.length} user${alertsData.reactivationRequests.length > 1 ? 's' : ''} requested monthly reactivation`,
+      count: alertsData.reactivationRequests.length,
+    },
     alertsData?.offlineNodes?.length > 0 && {
       tone: 'danger',
       Icon: ServerCrash,
@@ -244,7 +279,23 @@ export default function Admin() {
     muted: 'border-l-line-strong text-muted',
   }
 
-  const userStatusChip = (u) => u.isActive ? 'chip-ok' : 'chip-danger'
+  const userStatusChip = (u) => {
+    if (u.role !== 'admin' && !u.isApproved) return 'chip-warn'
+    if (!u.isActive) return 'chip-danger'
+    if (u.planExpiresAt && new Date(u.planExpiresAt) < new Date()) {
+      return u.reactivationRequested ? 'chip-warn animate-pulse' : 'chip-danger'
+    }
+    return 'chip-ok'
+  }
+
+  const userStatusText = (u) => {
+    if (u.role !== 'admin' && !u.isApproved) return 'PENDING'
+    if (!u.isActive) return 'BANNED'
+    if (u.planExpiresAt && new Date(u.planExpiresAt) < new Date()) {
+      return u.reactivationRequested ? 'REACTIVATION' : 'EXPIRED'
+    }
+    return 'ACTIVE'
+  }
 
   const deviceStatusChip = (d) => {
     const st = d.status || (d.isActive ? 'active' : 'revoked')
@@ -385,15 +436,24 @@ export default function Admin() {
             />
           </div>
           <select
+            className="input !w-44 !py-1.5 text-sm"
+            value={approvalFilter}
+            onChange={(e) => { setApprovalFilter(e.target.value); setPage(1) }}
+          >
+            <option value="">All statuses</option>
+            <option value="pending">Pending Approval</option>
+            <option value="reactivation_requested">Reactivation Requested</option>
+            <option value="expired">Expired</option>
+            <option value="approved">Approved</option>
+          </select>
+          <select
             className="input !w-36 !py-1.5 text-sm"
             value={planFilter}
             onChange={(e) => { setPlanFilter(e.target.value); setPage(1) }}
           >
             <option value="">All plans</option>
-            <option value="free">free</option>
-            <option value="basic">basic</option>
-            <option value="pro">pro</option>
-            <option value="team">team</option>
+            <option value="free">free (locked)</option>
+            <option value="pro">pro (friends)</option>
           </select>
         </div>
 
@@ -418,11 +478,33 @@ export default function Admin() {
                     {u.planExpiresAt ? new Date(u.planExpiresAt).toLocaleDateString() : '—'}
                   </td>
                   <td className="py-3.5 pr-4">
-                    <span className={userStatusChip(u)}>{u.isActive ? 'ACTIVE' : 'BANNED'}</span>
+                    <span className={userStatusChip(u)}>{userStatusText(u)}</span>
                   </td>
                   <td className="py-3.5 pr-4 text-faint">{new Date(u.createdAt).toLocaleDateString()}</td>
                   <td className="py-3.5">
                     <div className="flex items-center gap-2">
+                      {u.role !== 'admin' && !u.isApproved && (
+                        <button
+                          onClick={() => handleApprove(u._id, u.email)}
+                          disabled={loadingId === u._id}
+                          className="btn-primary !py-1 !px-2.5 text-xs flex items-center gap-1.5 !bg-ok hover:!bg-ok/90 !text-void font-semibold shadow-sm transition-all"
+                          title="Accept friend and activate 30-day Pro plan (2 devices, 100 Mbps)"
+                        >
+                          {loadingId === u._id ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />}
+                          <span>Accept</span>
+                        </button>
+                      )}
+                      {(u.role === 'admin' || u.isApproved) && u.planExpiresAt && new Date(u.planExpiresAt) < new Date() && (
+                        <button
+                          onClick={() => handleApprove(u._id, u.email)}
+                          disabled={loadingId === u._id}
+                          className="btn-primary !py-1 !px-2.5 text-xs flex items-center gap-1.5 !bg-accent-400 hover:!bg-accent-300 !text-void font-semibold shadow-sm transition-all"
+                          title="Renew friend for another 30-day Pro cycle"
+                        >
+                          {loadingId === u._id ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                          <span>Reactivate</span>
+                        </button>
+                      )}
                       <button
                         onClick={() => (u.isActive ? handleBan(u._id, u.email) : handleUnban(u._id, u.email))}
                         disabled={banning || updating}
@@ -446,9 +528,7 @@ export default function Admin() {
                         aria-label={`Change plan for ${u.email}`}
                       >
                         <option value="free">free</option>
-                        <option value="basic">basic</option>
                         <option value="pro">pro</option>
-                        <option value="team">team</option>
                       </select>
                     </div>
                   </td>

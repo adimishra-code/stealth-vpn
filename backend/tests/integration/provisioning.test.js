@@ -10,6 +10,7 @@ const mockTestUser = {
   email: 'prov@example.com',
   plan: 'pro',
   planExpiresAt: new Date(Date.now() + 7 * 86400000),
+  isApproved: true,
   isActive: true,
   notified: {},
   save: jest.fn(async () => {}),
@@ -202,7 +203,7 @@ describe('Provisioning API (integration)', () => {
       return { _id: `dev-${currentDeviceCount}`, ...props };
     });
 
-    // Fire 5 simultaneous requests when allowed max is 3 (pro plan)
+    // Fire 5 simultaneous requests when allowed max is 2 (pro plan)
     const promises = Array.from({ length: 5 }).map((_, i) =>
       request(app)
         .post('/api/devices')
@@ -214,8 +215,8 @@ describe('Provisioning API (integration)', () => {
     const successes = responses.filter((r) => r.status === 201);
     const rejected = responses.filter((r) => r.status === 403);
 
-    expect(successes.length).toBe(3);
-    expect(rejected.length).toBe(2);
+    expect(successes.length).toBe(2);
+    expect(rejected.length).toBe(3);
   });
 });
 

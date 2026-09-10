@@ -50,14 +50,17 @@ async function main() {
       passwordHash: passwordArg,
       emailVerified: true,
       role: 'admin',
+      isApproved: true,
       isActive: true,
-      plan: 'free',
+      plan: 'pro',
+      planExpiresAt: new Date(Date.now() + 3650 * 86400000),
     });
     created = true;
   } else {
     user.passwordHash = passwordArg;
     user.emailVerified = true;
     user.role = 'admin';
+    user.isApproved = true;
     user.isActive = true;
   }
 

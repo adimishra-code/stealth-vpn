@@ -44,6 +44,10 @@ export const authApi = api.injectEndpoints({
       query: () => ({ url: '/auth/me', method: 'DELETE' }),
       invalidatesTags: ['Users', 'Devices'],
     }),
+    requestReactivation: build.mutation({
+      query: () => ({ url: '/auth/request-reactivation', method: 'POST' }),
+      invalidatesTags: ['Users'],
+    }),
     me: build.query({
       query: () => '/auth/me',
       providesTags: ['Users'],
@@ -66,4 +70,5 @@ export const {
   useTotpVerifyMutation,
   useTotpDisableMutation,
   useDeleteAccountMutation,
+  useRequestReactivationMutation,
 } = authApi

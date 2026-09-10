@@ -135,6 +135,7 @@ const adminListUsersSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
   search: z.string().trim().max(200).optional(),
   plan: z.enum(['free', 'basic', 'pro', 'team']).optional(),
+  approvalStatus: z.enum(['all', 'pending', 'reactivation_requested', 'expired', 'approved']).optional(),
 });
 
 const adminListDevicesSchema = z.object({

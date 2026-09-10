@@ -168,16 +168,18 @@ async function provisionPeer({ serverNode, publicKey, assignedIP, plan }) {
   await ssh.execCommand('sudo -n wg-quick save wg0');
 
   let tcHandle = null;
-  if (plan === 'basic') {
+  if (plan === 'basic' || plan === 'pro') {
     tcHandle = generateTCHandle();
+    const rate = plan === 'basic' ? '10mbit' : '100mbit';
+    const burst = plan === 'basic' ? '15mbit' : '125mbit';
     const { stderr } = await ssh.execCommand(`
-        sudo -n tc class add dev wg0 parent 1:0 classid 1:${tcHandle} htb rate 10mbit burst 15mbit
+        sudo -n tc class add dev wg0 parent 1:0 classid 1:${tcHandle} htb rate ${rate} burst ${burst}
         sudo -n tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 match ip dst ${assignedIP}/32 flowid 1:${tcHandle}
-        sudo -n tc class add dev wg0 parent 1:0 classid 2:${tcHandle} htb rate 10mbit burst 15mbit
+        sudo -n tc class add dev wg0 parent 1:0 classid 2:${tcHandle} htb rate ${rate} burst ${burst}
         sudo -n tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 match ip src ${assignedIP}/32 flowid 2:${tcHandle}
       `);
-    // Throttle failures used to be hidden behind 2>/dev/null, leaving basic
-    // peers at FULL speed (free bandwidth). Anything except the idempotent
+    // Throttle failures used to be hidden behind 2>/dev/null, leaving
+    // peers at unmetered speed. Anything except the idempotent
     // "File exists" is a real failure: throw so the rollback revokes the peer.
     const realErrors = stderr.split('\n').filter((l) => l && !l.includes('File exists'));
     if (realErrors.length) {
@@ -199,19 +201,22 @@ async function provisionPeer({ serverNode, publicKey, assignedIP, plan }) {
   return { success: true, tcHandle };
 }
 
-async function applyThrottle({ serverNode, assignedIP }) {
+async function applyThrottle({ serverNode, assignedIP, plan = 'basic' }) {
   const ssh = await sshConnect(serverNode);
   const tcHandle = generateTCHandle();
+  const rate = plan === 'basic' ? '10mbit' : '100mbit';
+  const burst = plan === 'basic' ? '15mbit' : '125mbit';
   await ssh.execCommand(`
-      sudo -n tc class add dev wg0 parent 1:0 classid 1:${tcHandle} htb rate 10mbit burst 15mbit
+      sudo -n tc class add dev wg0 parent 1:0 classid 1:${tcHandle} htb rate ${rate} burst ${burst}
       sudo -n tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 match ip dst ${assignedIP}/32 flowid 1:${tcHandle}
-      sudo -n tc class add dev wg0 parent 1:0 classid 2:${tcHandle} htb rate 10mbit burst 15mbit
+      sudo -n tc class add dev wg0 parent 1:0 classid 2:${tcHandle} htb rate ${rate} burst ${burst}
       sudo -n tc filter add dev wg0 protocol ip parent 1:0 prio 1 u32 match ip src ${assignedIP}/32 flowid 2:${tcHandle}
   `);
   logger.info('Throttle applied', {
     node: serverNode.name,
     assignedIP,
     tcHandle,
+    rate,
   });
   return tcHandle;
 }

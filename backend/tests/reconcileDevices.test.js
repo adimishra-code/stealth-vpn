@@ -10,7 +10,7 @@ jest.mock('../src/services/vpn.service');
 jest.mock('../src/services/provisioning.service', () => ({
   PLAN_LIMITS: {
     basic: { devices: 1, bandwidth: 50 },
-    pro: { devices: 3, bandwidth: 500 },
+    pro: { devices: 2, bandwidth: 500 },
     team: { devices: 10, bandwidth: 2000 },
   },
   revokeDevice: jest.fn(async () => {}),

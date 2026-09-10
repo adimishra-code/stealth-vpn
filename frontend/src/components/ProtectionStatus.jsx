@@ -12,29 +12,27 @@ export default function ProtectionStatus({ devices, plan, daysLeft }) {
         tone: 'danger',
         Icon: ShieldOff,
         title: 'Not protected',
-        detail: 'Subscribe to provision an encrypted tunnel.',
-        cta: { to: '/billing', label: 'Choose a plan' },
+        detail: 'Administrator approval required to activate VPN tunnel and generate keys.',
       }
     : active.length === 0
       ? {
           tone: 'warn',
           Icon: ShieldAlert,
           title: 'No active devices',
-          detail: 'Your plan is live — add a device to start tunnelling.',
+          detail: 'Your Pro plan is approved — add a device to start tunnelling.',
         }
       : expiringSoon
         ? {
             tone: 'warn',
             Icon: ShieldAlert,
-            title: 'Protected — renew soon',
-            detail: `${active.length} device${active.length > 1 ? 's' : ''} cloaked · expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}.`,
-            cta: { to: '/billing', label: 'Renew' },
+            title: 'Protected — cycle ends soon',
+            detail: `${active.length} device${active.length > 1 ? 's' : ''} cloaked · 30-day cycle ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'}.`,
           }
         : {
             tone: 'ok',
             Icon: ShieldCheck,
             title: 'Protected',
-            detail: `${active.length} device${active.length > 1 ? 's' : ''} cloaked · ${daysLeft} days remaining.`,
+            detail: `${active.length} device${active.length > 1 ? 's' : ''} cloaked · ${daysLeft} days remaining (100 Mbps max).`,
           }
 
   const tones = {

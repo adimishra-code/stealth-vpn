@@ -16,7 +16,7 @@ const { redlock } = require('../config/redis');
 const PLAN_LIMITS = {
   free: { devices: 0 },
   basic: { devices: 1 },
-  pro: { devices: 3 },
+  pro: { devices: 2 },
   team: { devices: 10 },
 };
 

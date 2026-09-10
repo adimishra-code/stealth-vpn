@@ -10,7 +10,7 @@ if [[ $# -lt 2 ]]; then
   echo "Usage: $0 <PUBLIC_KEY> <TC_HANDLE>"
   echo "Example: $0 '4mZTj+...' '0x10a'"
   echo ""
-  echo "TC_HANDLE is optional (only needed for Basic plan cleanup)."
+  echo "TC_HANDLE is optional (used for Pro/Basic plan traffic shaping cleanup)."
   echo "Pass 'none' if no TC handle was set."
   exit 1
 fi
