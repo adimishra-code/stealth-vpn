@@ -18,7 +18,7 @@ exports.listDevices = asyncHandler(async (req, res) => {
 });
 
 exports.addDevice = asyncHandler(async (req, res) => {
-  const { deviceName, serverNode, mode } = req.body;
+  const { deviceName, serverNode, mode, clientCountry } = req.body;
   const user = req.user;
   if (!user.plan || user.plan === 'free') {
     throw new ApiError(403, 'No active plan. Subscribe to add devices.');
@@ -27,12 +27,15 @@ exports.addDevice = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'Plan expired. Renew to add devices.');
   }
 
+  const detectedCountry = clientCountry || req.headers['cf-ipcountry'] || req.headers['x-country-code'] || null;
+
   const result = await provisioning.provisionDevice({
     user,
     plan: user.plan,
     serverNodeName: serverNode,
     deviceName,
     mode,
+    clientCountry: detectedCountry,
   });
 
   audit({

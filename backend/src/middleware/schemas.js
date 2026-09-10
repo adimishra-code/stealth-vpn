@@ -67,6 +67,7 @@ const addDeviceSchema = z.object({
   deviceName: deviceNameSchema,
   serverNode: serverNodeSchema,
   mode: z.enum(['stealth', 'gaming']).default('stealth'),
+  clientCountry: z.string().trim().max(10).optional(),
 });
 
 const updateDeviceModeSchema = z.object({

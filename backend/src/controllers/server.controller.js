@@ -1,12 +1,12 @@
 const net = require('net');
 const ServerNode = require('../models/ServerNode');
 const { ApiError, asyncHandler } = require('../utils/ApiError');
-const logger = require('../config/logger');
 
 function measureTcpLatency(host, port = 443, timeoutMs = 2000) {
   return new Promise((resolve) => {
     const start = Date.now();
     const socket = new net.Socket();
+    socket.setNoDelay(true);
     let settled = false;
 
     const cleanup = (latency, ok) => {

@@ -48,9 +48,10 @@ async function enforceDeviceLimitAtomic(userId, plan, session) {
   }
 }
 
-// 'auto' (or omitted) picks the online node with the lowest active-peers
-// load; an explicit name is honored only if it has capacity left.
-async function resolveServerNode(serverNodeName) {
+// 'auto' (or omitted) prioritizes geographic proximity if clientCountry is provided,
+// selecting the lowest-load online node within the matching country before falling
+// back to global load balancing. An explicit name is honored only if it has capacity left.
+async function resolveServerNode(serverNodeName, clientCountry = null) {
   if (serverNodeName && serverNodeName !== 'auto') {
     const node = await vpn.getServerNode(serverNodeName);
     const active = await Device.countDocuments({ serverNode: node.name, isActive: true });
@@ -65,11 +66,28 @@ async function resolveServerNode(serverNodeName) {
   for (const node of nodes) {
     const active = await Device.countDocuments({ serverNode: node.name, isActive: true });
     if (node.maxPeers && active >= node.maxPeers) continue;
-    candidates.push({ name: node.name, load: active / (node.maxPeers || 1) });
+    candidates.push({
+      name: node.name,
+      country: node.country,
+      region: node.region,
+      load: active / (node.maxPeers || 1),
+    });
   }
   if (!candidates.length) {
     throw new ApiError(503, 'All server nodes are at capacity');
   }
+
+  if (clientCountry) {
+    const normalizedCountry = String(clientCountry).trim().toUpperCase();
+    const geoMatches = candidates.filter(
+      (c) => c.country && c.country.toUpperCase() === normalizedCountry
+    );
+    if (geoMatches.length > 0) {
+      geoMatches.sort((a, b) => a.load - b.load);
+      return geoMatches[0].name;
+    }
+  }
+
   candidates.sort((a, b) => a.load - b.load);
   return candidates[0].name;
 }
@@ -112,10 +130,10 @@ function withUserLock(userId, fn) {
 
 const MAX_ALLOCATION_RETRIES = 3;
 
-async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName, mode }) {
+async function provisionDeviceUnlocked({ user, plan, serverNodeName, deviceName, mode, clientCountry }) {
   await enforceDeviceLimitAtomic(user._id, plan);
 
-  const resolvedNodeName = await resolveServerNode(serverNodeName);
+  const resolvedNodeName = await resolveServerNode(serverNodeName, clientCountry);
 
   let device;
   let privateKey;
