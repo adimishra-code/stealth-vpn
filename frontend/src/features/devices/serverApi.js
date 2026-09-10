@@ -30,6 +30,7 @@ export const {
   usePingServersQuery,
   useLazyPingServersQuery,
   usePingServerQuery,
+  useLazyPingServerQuery,
   useGetDailyBandwidthQuery,
 } = serverApi
 
