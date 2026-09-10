@@ -24,6 +24,11 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
   const [confirmClose, setConfirmClose] = useState(false)
   // Presentational only — mode was fixed at order time; picks the emphasized tab.
   const [tab, setTab] = useState(vlessUri ? 'stealth' : 'wireguard')
+  const [mtuProfile, setMtuProfile] = useState('1420')
+
+  const effectiveConfig = config
+    ? config.replace(/MTU\s*=\s*\d+/, `MTU = ${mtuProfile}`)
+    : config
 
   const handleClose = () => {
     // The config embeds the private key — warn before discarding it. The
@@ -33,7 +38,7 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
   }
 
   const download = () => {
-    const blob = new Blob([config], { type: 'text/plain' })
+    const blob = new Blob([effectiveConfig], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -44,12 +49,12 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(config)
+      await navigator.clipboard.writeText(effectiveConfig)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
       // clipboard unavailable — show the raw config instead
-      window.alert(config)
+      window.alert(effectiveConfig)
     }
   }
 
@@ -182,6 +187,42 @@ export default function ConfigDelivery({ config, qrDataUrl, deviceName, onClose,
           {/* WireGuard tab */}
           {tab === 'wireguard' && (
             <div className="animate-fade-in" key="wg">
+              {/* MTU Profile Selector */}
+              <div className="mb-4 bg-void/60 border border-line rounded-lg p-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-2xs font-mono font-semibold uppercase text-faint tracking-wider">
+                    MTU Tuning Profile
+                  </span>
+                  <span className="text-2xs font-mono text-accent-400">
+                    {mtuProfile === '1420' ? 'Fiber / Broadband (Peak Throughput)' : 'Cellular / Mobile (Anti-Fragmentation)'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setMtuProfile('1420')}
+                    className={`text-xs py-1.5 px-2 rounded-md font-mono transition-colors ${
+                      mtuProfile === '1420'
+                        ? 'bg-accent-400/20 text-accent-300 border border-accent-400/40 font-semibold'
+                        : 'bg-raised/60 text-faint hover:text-ink border border-transparent'
+                    }`}
+                  >
+                    1420 (Max Speed)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMtuProfile('1380')}
+                    className={`text-xs py-1.5 px-2 rounded-md font-mono transition-colors ${
+                      mtuProfile === '1380'
+                        ? 'bg-accent-400/20 text-accent-300 border border-accent-400/40 font-semibold'
+                        : 'bg-raised/60 text-faint hover:text-ink border border-transparent'
+                    }`}
+                  >
+                    1380 (Mobile Safe)
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-2 mb-5">
                 <button onClick={download} className="btn-primary text-sm">
                   <Download size={14} />

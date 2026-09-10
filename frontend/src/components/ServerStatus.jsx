@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import PropTypes from 'prop-types'
-import { Activity, Gauge, Zap, CheckCircle2 } from 'lucide-react'
+import { Activity, Gauge, Zap } from 'lucide-react'
 import { useLazyPingServerQuery } from '../features/devices/serverApi'
 
 const FLAG = { IN: '🇮🇳', DE: '🇩🇪' }
@@ -63,6 +63,18 @@ export default function ServerStatus({ server, isFastest = false, initialPing = 
                 <span className="chip-accent text-2xs py-0.5 flex items-center gap-1">
                   <Zap size={10} className="fill-accent-400 text-accent-400" />
                   FASTEST
+                </span>
+              )}
+
+              {ping !== null && online && (
+                <span className={`inline-flex items-center gap-1 text-2xs font-mono font-semibold px-2 py-0.5 rounded-xs border ${
+                  ping < 50
+                    ? 'text-ok border-ok/30 bg-ok/10'
+                    : ping < 150
+                      ? 'text-warn border-warn/30 bg-warn/10'
+                      : 'text-orange-400 border-orange-400/30 bg-orange-400/10'
+                }`}>
+                  {ping < 50 ? 'GAMING READY' : ping < 150 ? 'OPTIMAL' : 'LONG DISTANCE'}
                 </span>
               )}
             </div>

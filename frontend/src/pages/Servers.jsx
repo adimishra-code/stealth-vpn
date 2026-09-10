@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { RefreshCw, Radar, Zap, Activity, Gauge, Globe2, Sparkles } from 'lucide-react'
+import { RefreshCw, Radar, Zap, Activity, Gauge, Globe2 } from 'lucide-react'
 import { useListServersQuery, useLazyPingServersQuery } from '../features/devices/serverApi'
 import ServerStatus from '../components/ServerStatus'
 
@@ -26,10 +26,27 @@ export default function Servers() {
   }
 
   useEffect(() => {
+    let active = true
     if (data?.servers?.length) {
-      handlePingAll()
+      triggerPingAll(undefined, true)
+        .unwrap()
+        .then((res) => {
+          if (active && res?.pings) {
+            const pingMap = {}
+            res.pings.forEach((p) => {
+              if (p.latencyMs !== null) {
+                pingMap[p.name] = p.latencyMs
+              }
+            })
+            setPings(pingMap)
+          }
+        })
+        .catch(() => {})
     }
-  }, [data])
+    return () => {
+      active = false
+    }
+  }, [data, triggerPingAll])
 
   const servers = data?.servers || []
   const onlineCount = servers.filter((s) => s.isOnline).length
