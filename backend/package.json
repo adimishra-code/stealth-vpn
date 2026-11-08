@@ -44,7 +44,7 @@
     "qrcode": "^1.5.4",
     "razorpay": "^2.9.4",
     "redlock": "^5.0.0-beta.2",
-    "stripe": "^22.5.0",
+    "stripe": "^22.6.0",
     "winston": "^3.14.0",
     "zod": "^4.4.3"
   },
